@@ -1,0 +1,314 @@
+.aiea-admin {
+	max-width: 1040px;
+}
+
+.aiea-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	padding: 20px 24px;
+	margin: 20px 0 16px;
+}
+.aiea-header h2 {
+	margin: 0 0 6px;
+}
+.aiea-header p {
+	margin: 0;
+	color: #646970;
+}
+
+.aiea-version {
+	flex: 0 0 auto;
+	background: #f0f0f1;
+	padding: 6px 10px;
+	border-radius: 5px;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+/* Navegación por pestañas */
+.aiea-nav-tabs {
+	margin-bottom: 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+.aiea-nav-tabs .nav-tab {
+	margin-left: 0;
+	border-top-left-radius: 6px;
+	border-top-right-radius: 6px;
+}
+
+.aiea-tab-panel[hidden] {
+	display: none !important;
+}
+
+.aiea-panel-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-top: 0;
+	border-radius: 0 0 8px 8px;
+	padding: 22px 24px;
+}
+.aiea-panel-card h3 {
+	margin-top: 0;
+	margin-bottom: 6px;
+	font-size: 16px;
+}
+.aiea-panel-card h4 {
+	margin: 24px 0 10px;
+	padding-top: 16px;
+	border-top: 1px solid #f0f0f1;
+	font-size: 14px;
+}
+
+.aiea-card-header-flex {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.aiea-admin .form-table th {
+	width: 240px;
+}
+
+.aiea-admin input[type="password"],
+.aiea-admin input[type="text"].regular-text,
+.aiea-admin input[type="email"].regular-text,
+.aiea-admin input[type="url"].regular-text,
+.aiea-admin select {
+	max-width: 100%;
+	min-width: 320px;
+}
+
+.aiea-submit-bar {
+	margin-top: 16px;
+	padding: 14px 20px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	display: flex;
+	justify-content: flex-end;
+}
+
+/* Políticas oficiales */
+.aiea-policy-status.is-verified {
+	color: #135e96;
+}
+.aiea-policy-status.is-warning {
+	color: #b32d2e;
+}
+
+/* Gestor de Preguntas Frecuentes (FAQ) */
+.aiea-faq-editor {
+	margin: 18px 0;
+	padding: 18px 20px;
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+}
+.aiea-faq-editor h4 {
+	margin: 0 0 12px;
+	padding: 0;
+	border: 0;
+}
+.aiea-faq-editor-row {
+	margin-bottom: 12px;
+}
+.aiea-faq-editor-row label {
+	display: block;
+	margin-bottom: 4px;
+}
+.aiea-faq-editor-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-top: 10px;
+}
+.aiea-faq-editor-buttons {
+	display: flex;
+	gap: 8px;
+}
+
+.aiea-faq-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin: 18px 0 12px;
+}
+.aiea-faq-count {
+	color: #646970;
+	font-size: 13px;
+}
+
+.aiea-faq-list {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.aiea-faq-empty {
+	padding: 20px;
+	text-align: center;
+	background: #f9fafb;
+	border: 1px dashed #c3c4c7;
+	border-radius: 6px;
+	color: #646970;
+}
+.aiea-faq-item {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 8px;
+	padding: 14px 16px;
+	transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+.aiea-faq-item.is-inactive {
+	background: #f6f7f7;
+	opacity: 0.78;
+}
+.aiea-faq-item-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 10px;
+}
+.aiea-faq-order-badge {
+	flex: 0 0 auto;
+	background: #f0f0f1;
+	color: #1d2327;
+	font-weight: 600;
+	font-size: 12px;
+	padding: 4px 8px;
+	border-radius: 4px;
+}
+.aiea-faq-input-question {
+	flex: 1 1 auto;
+	font-weight: 600;
+}
+.aiea-faq-active-toggle {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	white-space: nowrap;
+}
+.aiea-faq-item-body {
+	margin-bottom: 10px;
+}
+.aiea-faq-item-footer {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+/* Horarios y contacto */
+.aiea-days-fieldset {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 14px;
+}
+.aiea-day-checkbox {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+/* Selectores de color de apariencia */
+.aiea-color-field-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+}
+.aiea-color-picker {
+	width: 40px;
+	height: 32px;
+	padding: 2px;
+	border: 1px solid #8c8f94;
+	border-radius: 4px;
+	background: #fff;
+	cursor: pointer;
+}
+.aiea-color-hex {
+	width: 105px !important;
+	min-width: 105px !important;
+	font-family: monospace;
+}
+
+/* Consumo, límites y estadísticas */
+.aiea-rate-limits-info {
+	margin: 18px 0;
+	padding: 14px 18px;
+	background: #f0f6fc;
+	border-left: 4px solid #2271b1;
+	border-radius: 4px;
+}
+.aiea-rate-limits-info ul {
+	margin: 8px 0 0 18px;
+	list-style: disc;
+}
+.aiea-stats-table {
+	margin-top: 12px;
+}
+
+/* Panel de pruebas OpenAI */
+.aiea-test-panel {
+	margin-top: 24px;
+	padding: 22px 24px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+}
+.aiea-test-panel textarea {
+	display: block;
+	width: 100%;
+	max-width: 720px;
+	margin-top: 8px;
+}
+
+.aiea-test-status {
+	margin: 12px 0;
+	padding: 10px 12px;
+	border-left: 4px solid #8c8f94;
+	background: #f6f7f7;
+	white-space: pre-wrap;
+}
+.aiea-test-status.is-loading { border-color: #2271b1; }
+.aiea-test-status.is-success { border-color: #00a32a; }
+.aiea-test-status.is-error   { border-color: #d63638; }
+
+.aiea-test-result {
+	margin-top: 12px;
+	padding: 16px;
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	background: #f6f7f7;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+@media (max-width: 680px) {
+	.aiea-header,
+	.aiea-card-header-flex {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+	.aiea-admin input[type="password"],
+	.aiea-admin input[type="text"].regular-text,
+	.aiea-admin input[type="email"].regular-text,
+	.aiea-admin input[type="url"].regular-text,
+	.aiea-admin select {
+		min-width: 0;
+		width: 100%;
+	}
+	.aiea-faq-item-header {
+		flex-wrap: wrap;
+	}
+}
