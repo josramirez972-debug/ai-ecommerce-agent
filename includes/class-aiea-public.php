@@ -233,6 +233,10 @@ class AI_Ecommerce_Agent_Public {
 			true
 		);
 
+		$effective_limits = AI_Ecommerce_Agent_Usage::get_effective_limits();
+		$max_length       = (int) ( $effective_limits['max_message_length'] ?? AI_Ecommerce_Agent_API::PUBLIC_MAX_MESSAGE_LENGTH );
+		$is_demo          = AI_Ecommerce_Agent_Usage::is_demo_mode();
+
 		wp_localize_script(
 			'aiea-public-chat',
 			'AIEAPublic',
@@ -241,17 +245,21 @@ class AI_Ecommerce_Agent_Public {
 				'wcFragmentsUrl' => esc_url_raw( add_query_arg( 'wc-ajax', 'get_refreshed_fragments', home_url( '/' ) ) ),
 				'nonce'          => wp_create_nonce( 'wp_rest' ),
 				'agentName'      => $agent_name,
-				'maxLength'      => AI_Ecommerce_Agent_API::PUBLIC_MAX_MESSAGE_LENGTH,
+				'maxLength'      => $max_length,
+				'isDemoMode'     => $is_demo,
+				'demoCtas'       => $is_demo ? AI_Ecommerce_Agent_Usage::get_demo_ctas() : [],
 				'strings'        => [
-					'welcome'        => $welcome,
-					'emptyMessage'   => 'Por favor, escribe un mensaje antes de enviar.',
-					'tooLong'        => sprintf( 'El mensaje no puede superar los %d caracteres.', AI_Ecommerce_Agent_API::PUBLIC_MAX_MESSAGE_LENGTH ),
-					'error400'       => 'No se pudo procesar la solicitud. Verifica tu mensaje e inténtalo de nuevo.',
-					'errorSession'   => 'Tu sesión anterior expiró. Hemos iniciado una nueva sesión; por favor, envía tu mensaje otra vez.',
-					'error403'       => 'El asistente no está disponible en este momento.',
-					'error429'       => 'Estás enviando mensajes demasiado rápido. Por favor, espera unos segundos.',
-					'error503'       => $error_503,
-					'errorNetwork'   => 'No se pudo conectar con la tienda. Comprueba tu conexión e inténtalo de nuevo.',
+					'welcome'          => $welcome,
+					'emptyMessage'     => 'Por favor, escribe un mensaje antes de enviar.',
+					'tooLong'          => sprintf( 'El mensaje no puede superar los %d caracteres.', $max_length ),
+					'error400'         => 'No se pudo procesar la solicitud. Verifica tu mensaje e inténtalo de nuevo.',
+					'errorSession'     => 'Tu sesión anterior expiró. Hemos iniciado una nueva sesión; por favor, envía tu mensaje otra vez.',
+					'error403'         => 'El asistente no está disponible en este momento.',
+					'error429'         => 'Estás enviando mensajes demasiado rápido. Por favor, espera unos segundos.',
+					'error503'         => $error_503,
+					'errorNetwork'     => 'No se pudo conectar con la tienda. Comprueba tu conexión e inténtalo de nuevo.',
+					'demoSessionLimit' => AI_Ecommerce_Agent_Usage::DEMO_SESSION_LIMIT_MESSAGE,
+					'demoDailyLimit'   => AI_Ecommerce_Agent_Usage::DEMO_DAILY_LIMIT_MESSAGE,
 				],
 			]
 		);
@@ -340,13 +348,17 @@ class AI_Ecommerce_Agent_Public {
 
 				<div id="aiea-chat-notice" class="aiea-chat-notice" role="alert" hidden></div>
 
+				<?php
+				$effective_limits = AI_Ecommerce_Agent_Usage::get_effective_limits();
+				$max_length       = (int) ( $effective_limits['max_message_length'] ?? AI_Ecommerce_Agent_API::PUBLIC_MAX_MESSAGE_LENGTH );
+				?>
 				<form id="aiea-chat-form" class="aiea-chat-form" novalidate>
 					<label for="aiea-chat-input" class="aiea-sr-only"><?php esc_html_e( 'Escribe tu mensaje', 'ai-ecommerce-agent' ); ?></label>
 					<textarea
 						id="aiea-chat-input"
 						class="aiea-chat-input"
 						rows="1"
-						maxlength="<?php echo esc_attr( (string) AI_Ecommerce_Agent_API::PUBLIC_MAX_MESSAGE_LENGTH ); ?>"
+						maxlength="<?php echo esc_attr( (string) $max_length ); ?>"
 						placeholder="<?php echo esc_attr( $placeholder ); ?>"
 					></textarea>
 					<button

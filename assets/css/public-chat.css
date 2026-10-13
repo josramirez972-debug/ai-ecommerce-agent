@@ -287,6 +287,43 @@
 	display: none !important;
 }
 
+.aiea-chat-notice-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.aiea-chat-cta-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 5px 10px;
+	border-radius: 6px;
+	font-size: 12px;
+	font-weight: 600;
+	text-decoration: none;
+	line-height: 1.2;
+	transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.aiea-chat-cta-btn--primary {
+	background: var(--aiea-primary, #2563eb);
+	color: #ffffff !important;
+	border: 1px solid var(--aiea-primary, #2563eb);
+}
+
+.aiea-chat-cta-btn--secondary {
+	background: #ffffff;
+	color: var(--aiea-text-primary, #1f2937) !important;
+	border: 1px solid #d1d5db;
+}
+
+.aiea-chat-cta-btn:hover {
+	filter: brightness(0.95);
+	text-decoration: none;
+}
+
 /* Formulario de entrada */
 .aiea-chat-form {
 	display: flex;

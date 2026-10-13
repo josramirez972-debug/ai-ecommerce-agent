@@ -221,6 +221,11 @@ class AI_Ecommerce_Agent_Session {
 	}
 
 	/**
+	 * Longitud máxima de caracteres por mensaje en el contexto enviado a OpenAI.
+	 */
+	const MAX_MESSAGE_CONTENT_LENGTH = 1200;
+
+	/**
 	 * Transforma el historial guardado al formato requerido por la Responses API de OpenAI.
 	 *
 	 * En la Responses API, cada ítem dentro del array 'input' debe tener 'type' => 'message'.
@@ -231,12 +236,20 @@ class AI_Ecommerce_Agent_Session {
 	public static function to_responses_api_input( array $history ): array {
 		$formatted = [];
 
-		foreach ( $history as $msg ) {
-			if ( isset( $msg['role'], $msg['content'] ) ) {
+		foreach ( array_slice( $history, -self::MAX_MESSAGES ) as $msg ) {
+			if ( isset( $msg['role'], $msg['content'] ) && is_string( $msg['content'] ) ) {
+				$content = $msg['content'];
+				$len     = function_exists( 'mb_strlen' ) ? mb_strlen( $content, 'UTF-8' ) : strlen( $content );
+				if ( $len > self::MAX_MESSAGE_CONTENT_LENGTH ) {
+					$content = ( function_exists( 'mb_substr' )
+						? mb_substr( $content, 0, self::MAX_MESSAGE_CONTENT_LENGTH, 'UTF-8' )
+						: substr( $content, 0, self::MAX_MESSAGE_CONTENT_LENGTH )
+					) . '…';
+				}
 				$formatted[] = [
 					'type'    => 'message',
 					'role'    => $msg['role'],
-					'content' => $msg['content'],
+					'content' => $content,
 				];
 			}
 		}

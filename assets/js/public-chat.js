@@ -119,16 +119,53 @@
 		}
 	}
 
-	function showNotice(text) {
+	function showNotice(text, ctas) {
 		if (!noticeEl) {
 			return;
 		}
+		noticeEl.innerHTML = '';
 		if (!text) {
 			noticeEl.hidden = true;
-			noticeEl.textContent = '';
 			return;
 		}
-		noticeEl.textContent = String(text);
+
+		var textNode = document.createElement('div');
+		textNode.className = 'aiea-chat-notice-text';
+		textNode.textContent = String(text);
+		noticeEl.appendChild(textNode);
+
+		if (Array.isArray(ctas) && ctas.length > 0) {
+			var actionsWrap = document.createElement('div');
+			actionsWrap.className = 'aiea-chat-notice-actions';
+
+			for (var i = 0; i < ctas.length; i++) {
+				var cta = ctas[i];
+				if (!cta || typeof cta.label !== 'string' || cta.label.trim() === '') {
+					continue;
+				}
+				var btn = document.createElement('a');
+				btn.className = 'aiea-chat-cta-btn' + (i === 0 ? ' aiea-chat-cta-btn--primary' : ' aiea-chat-cta-btn--secondary');
+				btn.textContent = cta.label.trim();
+
+				if (typeof cta.url === 'string' && cta.url.trim() !== '') {
+					btn.href = cta.url.trim();
+					btn.target = '_blank';
+					btn.rel = 'noopener noreferrer';
+				} else {
+					btn.href = '#';
+					btn.setAttribute('aria-disabled', 'true');
+					btn.addEventListener('click', function (e) {
+						e.preventDefault();
+					});
+				}
+				actionsWrap.appendChild(btn);
+			}
+
+			if (actionsWrap.childNodes.length > 0) {
+				noticeEl.appendChild(actionsWrap);
+			}
+		}
+
 		noticeEl.hidden = false;
 	}
 
@@ -164,6 +201,22 @@
 		}
 	}
 
+	function resolveErrorCtas(data) {
+		if (!data || typeof data !== 'object') {
+			return [];
+		}
+		if (data.data && Array.isArray(data.data.ctas)) {
+			return data.data.ctas;
+		}
+		if (Array.isArray(data.ctas)) {
+			return data.ctas;
+		}
+		if (data.code === 'aiea_session_messages_limit' && Array.isArray(AIEAPublic.demoCtas)) {
+			return AIEAPublic.demoCtas;
+		}
+		return [];
+	}
+
 	function resolveErrorMessage(status, data) {
 		var code      = data && typeof data.code === 'string' ? data.code : '';
 		var serverMsg = data && typeof data.message === 'string' ? data.message.trim() : '';
@@ -172,6 +225,14 @@
 			setSessionId('');
 			removeStoredItem(STORAGE_KEY_HISTORY);
 			return strings.errorSession || 'Tu sesión anterior expiró. Por favor, envía tu mensaje de nuevo.';
+		}
+
+		if (code === 'aiea_session_messages_limit') {
+			return serverMsg || strings.demoSessionLimit || 'Has alcanzado el límite de consultas de esta demostración.';
+		}
+
+		if (code === 'aiea_daily_calls_limit' || code === 'aiea_daily_tokens_limit') {
+			return serverMsg || strings.demoDailyLimit || 'La demostración ha alcanzado temporalmente su capacidad de consultas. Por favor, inténtalo de nuevo más tarde.';
 		}
 
 		if (status === 400) {
@@ -397,7 +458,7 @@
 					}
 					input.value = message;
 					adjustInputHeight();
-					showNotice(resolveErrorMessage(result.status, result.data));
+					showNotice(resolveErrorMessage(result.status, result.data), resolveErrorCtas(result.data));
 					return;
 				}
 

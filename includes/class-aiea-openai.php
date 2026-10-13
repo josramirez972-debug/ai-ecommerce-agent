@@ -87,8 +87,12 @@ class AI_Ecommerce_Agent_OpenAI {
 			'content' => $message,
 		];
 
-		$cart_updated  = false;
-		$last_response = null;
+		$cart_updated      = false;
+		$last_response     = null;
+		$effective_limits  = class_exists( 'AI_Ecommerce_Agent_Usage' ) ? AI_Ecommerce_Agent_Usage::get_effective_limits() : [];
+		$max_output_tokens = isset( $effective_limits['max_output_tokens'] ) && (int) $effective_limits['max_output_tokens'] >= 100
+			? min( 1000, (int) $effective_limits['max_output_tokens'] )
+			: self::MAX_OUTPUT_TOKENS;
 
 		// --- 4. Ciclo controlado de llamadas y ejecución de herramientas (hasta MAX_TOOL_ROUNDS rondas) ---
 		for ( $round = 1; $round <= self::MAX_TOOL_ROUNDS; $round++ ) {
@@ -96,7 +100,7 @@ class AI_Ecommerce_Agent_OpenAI {
 				'model'             => $model,
 				'instructions'      => $instructions,
 				'input'             => $current_input,
-				'max_output_tokens' => self::MAX_OUTPUT_TOKENS,
+				'max_output_tokens' => $max_output_tokens,
 				'store'             => false,
 			];
 
@@ -158,11 +162,18 @@ class AI_Ecommerce_Agent_OpenAI {
 					$cart_updated = true;
 				}
 
+				$tool_json = wp_json_encode( $tool_result );
+				if ( is_string( $tool_json ) && strlen( $tool_json ) > 6000 ) {
+					$tool_json = function_exists( 'mb_substr' )
+						? mb_substr( $tool_json, 0, 6000, 'UTF-8' )
+						: substr( $tool_json, 0, 6000 );
+				}
+
 				$current_input[] = $fc;
 				$current_input[] = [
 					'type'    => 'function_call_output',
 					'call_id' => $call_id,
-					'output'  => wp_json_encode( $tool_result ),
+					'output'  => (string) $tool_json,
 				];
 
 				$executed_count++;
@@ -174,7 +185,7 @@ class AI_Ecommerce_Agent_OpenAI {
 			'model'             => $model,
 			'instructions'      => $instructions,
 			'input'             => $current_input,
-			'max_output_tokens' => self::MAX_OUTPUT_TOKENS,
+			'max_output_tokens' => $max_output_tokens,
 			'store'             => false,
 			'tools'             => $tools,
 			'tool_choice'       => 'none',
@@ -435,6 +446,16 @@ class AI_Ecommerce_Agent_OpenAI {
 	 * @return array|WP_Error Body decodificado o WP_Error.
 	 */
 	private static function http_post( string $key, array $payload ) {
+		$reservation_id = '';
+		if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
+			$estimated_tokens = AI_Ecommerce_Agent_Usage::estimate_payload_tokens( $payload );
+			$reservation      = AI_Ecommerce_Agent_Usage::reserve_openai_call_capacity( $estimated_tokens );
+			if ( is_wp_error( $reservation ) ) {
+				return $reservation;
+			}
+			$reservation_id = (string) $reservation;
+		}
+
 		$response = wp_remote_post(
 			self::API_ENDPOINT,
 			[
@@ -450,7 +471,7 @@ class AI_Ecommerce_Agent_OpenAI {
 
 		if ( is_wp_error( $response ) ) {
 			if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
-				AI_Ecommerce_Agent_Usage::record_openai_error();
+				AI_Ecommerce_Agent_Usage::record_openai_error( $reservation_id );
 			}
 			return new WP_Error(
 				'aiea_connection_error',
@@ -464,14 +485,14 @@ class AI_Ecommerce_Agent_OpenAI {
 
 		if ( $status < 200 || $status >= 300 ) {
 			if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
-				AI_Ecommerce_Agent_Usage::record_openai_error();
+				AI_Ecommerce_Agent_Usage::record_openai_error( $reservation_id );
 			}
 			return self::openai_http_error( $status, $body );
 		}
 
 		if ( ! is_array( $body ) ) {
 			if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
-				AI_Ecommerce_Agent_Usage::record_openai_error();
+				AI_Ecommerce_Agent_Usage::record_openai_error( $reservation_id );
 			}
 			return new WP_Error(
 				'aiea_invalid_response',
@@ -481,7 +502,7 @@ class AI_Ecommerce_Agent_OpenAI {
 		}
 
 		if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
-			AI_Ecommerce_Agent_Usage::record_openai_call_response( $body );
+			AI_Ecommerce_Agent_Usage::record_openai_call_response( $body, $reservation_id );
 		}
 
 		return $body;

@@ -145,7 +145,17 @@ class AI_Ecommerce_Agent_API {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public static function public_chat( WP_REST_Request $request ) {
-		// 0. Comprobar si el agente público está activado antes de adquirir bloqueos o invocar OpenAI.
+		// 0. Comprobar método HTTP explícitamente (incluso ante invocaciones directas).
+		$method = method_exists( $request, 'get_method' ) ? strtoupper( (string) $request->get_method() ) : 'POST';
+		if ( '' !== $method && 'POST' !== $method ) {
+			return new WP_Error(
+				'aiea_method_not_allowed',
+				'Método HTTP no permitido. Utiliza POST.',
+				[ 'status' => 405 ]
+			);
+		}
+
+		// 0.1 Comprobar si el agente público está activado antes de adquirir bloqueos o invocar OpenAI.
 		$options = get_option( 'aiea_settings', [] );
 		$enabled = is_array( $options ) && ! empty( $options['enabled'] ) && '0' !== (string) $options['enabled'];
 		if ( ! $enabled ) {
@@ -156,9 +166,47 @@ class AI_Ecommerce_Agent_API {
 			);
 		}
 
+		// 0.2 Validar estructura de los datos recibidos antes de procesarlos.
+		$raw_msg_param  = $request->get_param( 'message' );
+		$raw_sess_param = $request->get_param( 'session_id' );
+
+		if ( null !== $raw_msg_param && ! is_scalar( $raw_msg_param ) ) {
+			if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
+				AI_Ecommerce_Agent_Usage::record_limit_rejection();
+			}
+			return new WP_Error(
+				'aiea_invalid_payload',
+				'El formato del mensaje no es válido.',
+				[ 'status' => 400 ]
+			);
+		}
+
+		if ( null !== $raw_sess_param && ! is_scalar( $raw_sess_param ) ) {
+			if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
+				AI_Ecommerce_Agent_Usage::record_limit_rejection();
+			}
+			return new WP_Error(
+				'aiea_invalid_session',
+				'El identificador de sesión no es válido.',
+				[ 'status' => 400 ]
+			);
+		}
+
 		$client_ip = self::get_client_ip();
-		$raw_sess  = trim( (string) $request->get_param( 'session_id' ) );
-		$message   = trim( (string) $request->get_param( 'message' ) );
+		$raw_sess  = trim( (string) $raw_sess_param );
+		$message   = trim( (string) $raw_msg_param );
+
+		$effective_limits = class_exists( 'AI_Ecommerce_Agent_Usage' )
+			? AI_Ecommerce_Agent_Usage::get_effective_limits()
+			: [
+				'min_interval_seconds'       => self::RATE_LIMIT_COOLDOWN,
+				'max_messages_per_ip_minute' => self::RATE_LIMIT_PER_MINUTE,
+				'max_messages_per_ip_hour'   => self::RATE_LIMIT_PER_HOUR,
+				'max_message_length'         => self::PUBLIC_MAX_MESSAGE_LENGTH,
+			];
+
+		$max_message_length = max( 50, (int) ( $effective_limits['max_message_length'] ?? self::PUBLIC_MAX_MESSAGE_LENGTH ) );
+		$cooldown_seconds   = max( 1, (int) ( $effective_limits['min_interval_seconds'] ?? self::RATE_LIMIT_COOLDOWN ) );
 
 		if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
 			AI_Ecommerce_Agent_Usage::record_public_request();
@@ -192,10 +240,13 @@ class AI_Ecommerce_Agent_API {
 		}
 
 		$length = function_exists( 'mb_strlen' ) ? mb_strlen( $message, 'UTF-8' ) : strlen( $message );
-		if ( $length > self::PUBLIC_MAX_MESSAGE_LENGTH ) {
+		if ( $length > $max_message_length ) {
+			if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
+				AI_Ecommerce_Agent_Usage::record_limit_rejection();
+			}
 			return new WP_Error(
 				'aiea_message_too_long',
-				sprintf( 'El mensaje no puede superar los %d caracteres.', self::PUBLIC_MAX_MESSAGE_LENGTH ),
+				sprintf( 'El mensaje no puede superar los %d caracteres.', $max_message_length ),
 				[ 'status' => 400 ]
 			);
 		}
@@ -212,8 +263,8 @@ class AI_Ecommerce_Agent_API {
 		$rate_limit_passed = false;
 
 		try {
-			// 4. Aplicar controles de frecuencia (por IP y por sesión) bajo exclusión mutua.
-			$rate_check = self::check_rate_limit( $client_ip, $session_id );
+			// 4. Evaluar controles de frecuencia (cooldown, mensajes/minuto y mensajes/hora por IP) bajo exclusión mutua.
+			$rate_check = self::check_rate_limit( $client_ip, $session_id, $effective_limits );
 			if ( is_wp_error( $rate_check ) ) {
 				if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
 					AI_Ecommerce_Agent_Usage::record_limit_rejection();
@@ -221,9 +272,7 @@ class AI_Ecommerce_Agent_API {
 				return $rate_check;
 			}
 
-			$rate_limit_passed = true;
-
-			// 5. Aplicar controles de consumo y abuso (presupuesto diario, sesiones nuevas/hora, límite por sesión y duplicados).
+			// 5. Evaluar controles de consumo y abuso (presupuesto diario, límite por sesión, sesiones nuevas/hora y duplicados).
 			if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
 				$usage_check = AI_Ecommerce_Agent_Usage::check_public_consumption_limits(
 					$client_ip,
@@ -234,14 +283,30 @@ class AI_Ecommerce_Agent_API {
 				if ( is_wp_error( $usage_check ) ) {
 					return $usage_check;
 				}
+			}
 
+			// 5.1 Confirmar y persistir los contadores de frecuencia y de sesión una vez superadas todas las validaciones.
+			self::commit_rate_limit( $rate_check );
+			$rate_limit_passed = true;
+
+			if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
 				AI_Ecommerce_Agent_Usage::commit_session_message( $session_id, $message );
 			}
 
-			// 6. Enviar mensaje al agente manteniendo aislada la sesión.
-			$result = AI_Ecommerce_Agent_OpenAI::send_message( $message, $session_id );
+			// 6. Enviar mensaje al agente manteniendo aislada la sesión y capturando cualquier excepción inesperada.
+			try {
+				$result = AI_Ecommerce_Agent_OpenAI::send_message( $message, $session_id );
+			} catch ( Throwable $e ) {
+				$result = new WP_Error( 'aiea_internal_error', 'Error interno procesando la consulta.' );
+			}
+
 			if ( is_wp_error( $result ) ) {
-				// No exponer errores internos de configuración ni detalles de OpenAI al público.
+				$err_code = $result->get_error_code();
+				if ( in_array( $err_code, [ 'aiea_daily_calls_limit', 'aiea_daily_tokens_limit' ], true ) ) {
+					return $result;
+				}
+
+				// No exponer errores internos de configuración, rutas ni detalles de OpenAI al público.
 				return new WP_Error(
 					'aiea_service_unavailable',
 					'El asistente no está disponible en este momento. Por favor, inténtalo de nuevo en unos instantes.',
@@ -263,7 +328,7 @@ class AI_Ecommerce_Agent_API {
 		} finally {
 			// Registrar el cooldown desde la finalización de la petición aceptada y liberar siempre el bloqueo.
 			if ( $rate_limit_passed ) {
-				self::record_cooldown( $client_ip, $session_id );
+				self::record_cooldown( $client_ip, $session_id, $cooldown_seconds );
 			}
 			self::release_ip_lock( $lock_handle );
 		}
@@ -373,27 +438,34 @@ class AI_Ecommerce_Agent_API {
 	}
 
 	/**
-	 * Comprueba y registra los límites de frecuencia de solicitudes por visitante.
+	 * Comprueba los límites de frecuencia de solicitudes por visitante sin escribir transients todavía.
 	 * Debe ejecutarse bajo el bloqueo adquirido con acquire_ip_lock().
 	 *
-	 * @param string $client_ip  Dirección IP del visitante.
-	 * @param string $session_id Token de sesión verificado.
-	 * @return true|WP_Error
+	 * @param string $client_ip        Dirección IP del visitante.
+	 * @param string $session_id       Token de sesión verificado.
+	 * @param array  $effective_limits Límites efectivos según el modo de la instalación.
+	 * @return array|WP_Error Datos preparados para commit_rate_limit() o WP_Error si se supera algún límite.
 	 */
-	private static function check_rate_limit( string $client_ip, string $session_id ) {
-		$now_micro = microtime( true );
-		$now       = time();
-		$ip_hash   = md5( $client_ip );
-		$sess_hash = md5( $session_id );
+	private static function check_rate_limit( string $client_ip, string $session_id, array $effective_limits = [] ) {
+		$now_micro        = microtime( true );
+		$now              = time();
+		$ip_hash          = md5( $client_ip );
+		$sess_hash        = md5( $session_id );
+		$cooldown_seconds = max( 1, (int) ( $effective_limits['min_interval_seconds'] ?? self::RATE_LIMIT_COOLDOWN ) );
+		$max_per_minute   = max( 1, (int) ( $effective_limits['max_messages_per_ip_minute'] ?? self::RATE_LIMIT_PER_MINUTE ) );
+		$max_per_hour     = max( 1, (int) ( $effective_limits['max_messages_per_ip_hour'] ?? self::RATE_LIMIT_PER_HOUR ) );
 
-		// 1. Cooldown por IP y por sesión (cubre peticiones en vuelo y los 2 s posteriores a la finalización).
+		// 1. Cooldown por IP y por sesión (cubre peticiones en vuelo y el intervalo mínimo tras la finalización).
 		$cd_ip_key   = 'aiea_rl_cd_' . $ip_hash;
 		$cd_sess_key = 'aiea_rl_cds_' . $sess_hash;
 
 		$cd_ip_val   = get_transient( $cd_ip_key );
 		$cd_sess_val = get_transient( $cd_sess_key );
 
-		if ( self::is_cooldown_active( $cd_ip_val, $now_micro ) || self::is_cooldown_active( $cd_sess_val, $now_micro ) ) {
+		if (
+			self::is_cooldown_active( $cd_ip_val, $now_micro, $cooldown_seconds )
+			|| self::is_cooldown_active( $cd_sess_val, $now_micro, $cooldown_seconds )
+		) {
 			return new WP_Error(
 				'aiea_rate_limit_exceeded',
 				'Estás enviando mensajes demasiado rápido. Por favor, espera unos segundos.',
@@ -405,7 +477,7 @@ class AI_Ecommerce_Agent_API {
 		$min_key  = 'aiea_rl_m_' . $ip_hash;
 		$min_data = get_transient( $min_key );
 		if ( is_array( $min_data ) && isset( $min_data['count'], $min_data['start'] ) && ( $now - $min_data['start'] ) < 60 ) {
-			if ( $min_data['count'] >= self::RATE_LIMIT_PER_MINUTE ) {
+			if ( $min_data['count'] >= $max_per_minute ) {
 				return new WP_Error(
 					'aiea_rate_limit_exceeded',
 					'Has alcanzado el límite de mensajes por minuto. Por favor, espera un momento antes de continuar.',
@@ -426,11 +498,14 @@ class AI_Ecommerce_Agent_API {
 		$hr_key  = 'aiea_rl_h_' . $ip_hash;
 		$hr_data = get_transient( $hr_key );
 		if ( is_array( $hr_data ) && isset( $hr_data['count'], $hr_data['start'] ) && ( $now - $hr_data['start'] ) < 3600 ) {
-			if ( $hr_data['count'] >= self::RATE_LIMIT_PER_HOUR ) {
+			if ( $hr_data['count'] >= $max_per_hour ) {
 				return new WP_Error(
 					'aiea_rate_limit_exceeded',
 					'Has superado el límite de consultas permitido por ahora. Inténtalo más tarde.',
-					[ 'status' => 429 ]
+					[
+						'status'     => 429,
+						'limit_type' => 'ip_hourly',
+					]
 				);
 			}
 			$hr_data['count']++;
@@ -443,27 +518,46 @@ class AI_Ecommerce_Agent_API {
 			$hr_ttl = 3600;
 		}
 
-		// Marcar estado en vuelo mientras se procesa la respuesta de OpenAI; al terminar, record_cooldown() fija los 2 s desde la finalización.
+		return [
+			'cd_ip_key'   => $cd_ip_key,
+			'cd_sess_key' => $cd_sess_key,
+			'now_micro'   => $now_micro,
+			'min_key'     => $min_key,
+			'min_data'    => $min_data,
+			'min_ttl'     => $min_ttl,
+			'hr_key'      => $hr_key,
+			'hr_data'     => $hr_data,
+			'hr_ttl'      => $hr_ttl,
+		];
+	}
+
+	/**
+	 * Persiste los contadores de frecuencia por IP y marca la petición como `in_flight`.
+	 *
+	 * @param array $rate_state Estado devuelto por check_rate_limit().
+	 * @return void
+	 */
+	private static function commit_rate_limit( array $rate_state ): void {
 		$in_flight_data = [
 			'state' => 'in_flight',
-			'ts'    => $now_micro,
+			'ts'    => $rate_state['now_micro'],
 		];
-		set_transient( $cd_ip_key, $in_flight_data, self::RATE_LIMIT_IN_FLIGHT_TTL );
-		set_transient( $cd_sess_key, $in_flight_data, self::RATE_LIMIT_IN_FLIGHT_TTL );
-		set_transient( $min_key, $min_data, $min_ttl );
-		set_transient( $hr_key, $hr_data, $hr_ttl );
 
-		return true;
+		set_transient( $rate_state['cd_ip_key'], $in_flight_data, self::RATE_LIMIT_IN_FLIGHT_TTL );
+		set_transient( $rate_state['cd_sess_key'], $in_flight_data, self::RATE_LIMIT_IN_FLIGHT_TTL );
+		set_transient( $rate_state['min_key'], $rate_state['min_data'], $rate_state['min_ttl'] );
+		set_transient( $rate_state['hr_key'], $rate_state['hr_data'], $rate_state['hr_ttl'] );
 	}
 
 	/**
 	 * Determina si un registro de cooldown (en vuelo o completado) continúa activo.
 	 *
-	 * @param mixed $cooldown_data Valor almacenado en el transient de cooldown.
-	 * @param float $now_micro     Marca de tiempo actual en segundos con microsegundos.
+	 * @param mixed $cooldown_data    Valor almacenado en el transient de cooldown.
+	 * @param float $now_micro        Marca de tiempo actual en segundos con microsegundos.
+	 * @param int   $cooldown_seconds Segundos mínimos de intervalo tras completar una petición.
 	 * @return bool
 	 */
-	private static function is_cooldown_active( $cooldown_data, float $now_micro ): bool {
+	private static function is_cooldown_active( $cooldown_data, float $now_micro, int $cooldown_seconds = self::RATE_LIMIT_COOLDOWN ): bool {
 		if ( false === $cooldown_data ) {
 			return false;
 		}
@@ -475,7 +569,7 @@ class AI_Ecommerce_Agent_API {
 				return $elapsed < self::RATE_LIMIT_IN_FLIGHT_TTL;
 			}
 
-			return $elapsed < self::RATE_LIMIT_COOLDOWN;
+			return $elapsed < $cooldown_seconds;
 		}
 
 		return true;
@@ -484,16 +578,17 @@ class AI_Ecommerce_Agent_API {
 	/**
 	 * Registra el cooldown a partir del instante exacto en que finaliza la petición.
 	 *
-	 * @param string $client_ip  Dirección IP del visitante.
-	 * @param string $session_id Token de sesión verificado.
+	 * @param string $client_ip        Dirección IP del visitante.
+	 * @param string $session_id       Token de sesión verificado.
+	 * @param int    $cooldown_seconds Segundos de cooldown configurados.
 	 * @return void
 	 */
-	private static function record_cooldown( string $client_ip, string $session_id ): void {
+	private static function record_cooldown( string $client_ip, string $session_id, int $cooldown_seconds = self::RATE_LIMIT_COOLDOWN ): void {
 		$completed_data = [
 			'state' => 'completed',
 			'ts'    => microtime( true ),
 		];
-		$ttl            = self::RATE_LIMIT_COOLDOWN + 2;
+		$ttl            = max( 1, $cooldown_seconds ) + 2;
 
 		set_transient( 'aiea_rl_cd_' . md5( $client_ip ), $completed_data, $ttl );
 		set_transient( 'aiea_rl_cds_' . md5( $session_id ), $completed_data, $ttl );

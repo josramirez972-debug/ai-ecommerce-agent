@@ -142,6 +142,17 @@ class AI_Ecommerce_Agent_Admin {
 				'default'           => AI_Ecommerce_Agent_Usage::get_limits_defaults(),
 			)
 		);
+
+		// 9. Modo Demostración Pública (Jora IA).
+		register_setting(
+			'aiea_settings_group',
+			AI_Ecommerce_Agent_Usage::OPTION_DEMO,
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( __CLASS__, 'sanitize_demo_settings' ),
+				'default'           => AI_Ecommerce_Agent_Usage::get_demo_defaults(),
+			)
+		);
 	}
 
 	// =========================================================
@@ -578,6 +589,50 @@ class AI_Ecommerce_Agent_Admin {
 			'duplicate_window_seconds'     => isset( $input['duplicate_window_seconds'] ) && is_numeric( $input['duplicate_window_seconds'] )
 				? max( 0, min( 600, (int) $input['duplicate_window_seconds'] ) )
 				: $defaults['duplicate_window_seconds'],
+		);
+	}
+
+	/**
+	 * Sanitiza la configuración específica para modo Demostración Pública (`aiea_demo_settings`).
+	 *
+	 * @param mixed $input Datos enviados.
+	 * @return array<string,mixed>
+	 */
+	public static function sanitize_demo_settings( $input ): array {
+		$input    = is_array( $input ) ? $input : array();
+		$defaults = AI_Ecommerce_Agent_Usage::get_demo_defaults();
+
+		$raw_pro_url     = isset( $input['cta_pro_url'] ) ? trim( (string) $input['cta_pro_url'] ) : '';
+		$raw_install_url = isset( $input['cta_install_url'] ) ? trim( (string) $input['cta_install_url'] ) : '';
+
+		return array(
+			'enabled'                      => ! empty( $input['enabled'] ) ? 1 : 0,
+			'max_messages_per_session'     => isset( $input['max_messages_per_session'] ) && is_numeric( $input['max_messages_per_session'] )
+				? max( 1, min( 500, (int) $input['max_messages_per_session'] ) )
+				: (int) $defaults['max_messages_per_session'],
+			'max_new_sessions_per_ip_hour' => isset( $input['max_new_sessions_per_ip_hour'] ) && is_numeric( $input['max_new_sessions_per_ip_hour'] )
+				? max( 1, min( 500, (int) $input['max_new_sessions_per_ip_hour'] ) )
+				: (int) $defaults['max_new_sessions_per_ip_hour'],
+			'min_interval_seconds'         => isset( $input['min_interval_seconds'] ) && is_numeric( $input['min_interval_seconds'] )
+				? max( 1, min( 120, (int) $input['min_interval_seconds'] ) )
+				: (int) $defaults['min_interval_seconds'],
+			'max_messages_per_ip_hour'     => isset( $input['max_messages_per_ip_hour'] ) && is_numeric( $input['max_messages_per_ip_hour'] )
+				? max( 1, min( 1000, (int) $input['max_messages_per_ip_hour'] ) )
+				: (int) $defaults['max_messages_per_ip_hour'],
+			'max_daily_openai_calls'       => isset( $input['max_daily_openai_calls'] ) && is_numeric( $input['max_daily_openai_calls'] )
+				? max( 1, min( 100000, (int) $input['max_daily_openai_calls'] ) )
+				: (int) $defaults['max_daily_openai_calls'],
+			'max_daily_tokens'             => isset( $input['max_daily_tokens'] ) && is_numeric( $input['max_daily_tokens'] )
+				? max( 500, min( 10000000, (int) $input['max_daily_tokens'] ) )
+				: (int) $defaults['max_daily_tokens'],
+			'max_message_length'           => isset( $input['max_message_length'] ) && is_numeric( $input['max_message_length'] )
+				? max( 50, min( 2000, (int) $input['max_message_length'] ) )
+				: (int) $defaults['max_message_length'],
+			'max_output_tokens'            => isset( $input['max_output_tokens'] ) && is_numeric( $input['max_output_tokens'] )
+				? max( 100, min( 1500, (int) $input['max_output_tokens'] ) )
+				: (int) $defaults['max_output_tokens'],
+			'cta_pro_url'                  => '' !== $raw_pro_url ? esc_url_raw( $raw_pro_url ) : '',
+			'cta_install_url'              => '' !== $raw_install_url ? esc_url_raw( $raw_install_url ) : '',
 		);
 	}
 
@@ -1624,13 +1679,176 @@ class AI_Ecommerce_Agent_Admin {
 	 * @return void
 	 */
 	private static function render_tab_usage( array $limits, array $stats ): void {
-		$opt   = AI_Ecommerce_Agent_Usage::OPTION_LIMITS;
-		$today = isset( $stats['today'] ) && is_array( $stats['today'] ) ? $stats['today'] : array();
-		$total = isset( $stats['total'] ) && is_array( $stats['total'] ) ? $stats['total'] : array();
+		$opt      = AI_Ecommerce_Agent_Usage::OPTION_LIMITS;
+		$demo_opt = AI_Ecommerce_Agent_Usage::OPTION_DEMO;
+		$demo     = AI_Ecommerce_Agent_Usage::get_demo_settings();
+		$today    = isset( $stats['today'] ) && is_array( $stats['today'] ) ? $stats['today'] : array();
+		$total    = isset( $stats['total'] ) && is_array( $stats['total'] ) ? $stats['total'] : array();
 		?>
 		<div class="aiea-panel-card">
-			<h3>Límites operativos y protección contra consumo excesivo</h3>
-			<p class="description">Configura los topes de uso del endpoint público para proteger tu presupuesto de OpenAI. Introduce <strong><code>0</code></strong> en cualquier campo si deseas dejar ese control <strong>sin límite</strong>.</p>
+			<h3>Modo Demostración Pública (Jora IA — Tienda Demo)</h3>
+			<p class="description">Activa este modo cuando la instalación funcione como <strong>tienda de demostración pública</strong> (por ejemplo, NUTRIX). El modo demo se aplica exclusivamente en el servidor y utiliza sus propios topes estrictos de seguridad sin alterar los límites configurados para instalaciones comerciales.</p>
+
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row">Estado del modo demostración</th>
+					<td>
+						<label>
+							<input
+								type="checkbox"
+								id="aiea-demo-enabled"
+								name="<?php echo esc_attr( $demo_opt ); ?>[enabled]"
+								value="1"
+								<?php checked( ! empty( $demo['enabled'] ) ); ?>>
+							<strong>Activar Modo Demostración Pública en esta tienda</strong>
+						</label>
+						<p class="description">Cuando está activo, el endpoint público aplica los límites de demostración indicados a continuación y muestra los enlaces de conversión al alcanzar el límite por sesión.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-session-msgs">Máximo de mensajes por sesión (Demo)</label></th>
+					<td>
+						<input
+							type="number"
+							id="aiea-demo-session-msgs"
+							class="small-text"
+							min="1"
+							max="500"
+							name="<?php echo esc_attr( $demo_opt ); ?>[max_messages_per_session]"
+							value="<?php echo (int) $demo['max_messages_per_session']; ?>">
+						<p class="description">Valor recomendado para demo pública: <code>10</code>.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-new-sessions">Máximo de sesiones nuevas por IP por hora (Demo)</label></th>
+					<td>
+						<input
+							type="number"
+							id="aiea-demo-new-sessions"
+							class="small-text"
+							min="1"
+							max="500"
+							name="<?php echo esc_attr( $demo_opt ); ?>[max_new_sessions_per_ip_hour]"
+							value="<?php echo (int) $demo['max_new_sessions_per_ip_hour']; ?>">
+						<p class="description">Valor recomendado para demo pública: <code>3</code>.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-min-interval">Intervalo mínimo entre mensajes de la misma sesión/IP (segundos)</label></th>
+					<td>
+						<input
+							type="number"
+							id="aiea-demo-min-interval"
+							class="small-text"
+							min="1"
+							max="120"
+							name="<?php echo esc_attr( $demo_opt ); ?>[min_interval_seconds]"
+							value="<?php echo (int) $demo['min_interval_seconds']; ?>"> s
+						<p class="description">Valor recomendado para demo pública: <code>3</code> segundos.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-ip-hour">Máximo de mensajes por IP por hora (Demo)</label></th>
+					<td>
+						<input
+							type="number"
+							id="aiea-demo-ip-hour"
+							class="small-text"
+							min="1"
+							max="1000"
+							name="<?php echo esc_attr( $demo_opt ); ?>[max_messages_per_ip_hour]"
+							value="<?php echo (int) $demo['max_messages_per_ip_hour']; ?>">
+						<p class="description">Valor recomendado para demo pública: <code>15</code>.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-daily-calls">Máximo global diario de llamadas a OpenAI (Demo)</label></th>
+					<td>
+						<input
+							type="number"
+							id="aiea-demo-daily-calls"
+							class="regular-text"
+							min="1"
+							max="100000"
+							name="<?php echo esc_attr( $demo_opt ); ?>[max_daily_openai_calls]"
+							value="<?php echo (int) $demo['max_daily_openai_calls']; ?>">
+						<p class="description">Valor recomendado para demo pública: <code>100</code>.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-daily-tokens">Máximo global diario de tokens totales (Demo)</label></th>
+					<td>
+						<input
+							type="number"
+							id="aiea-demo-daily-tokens"
+							class="regular-text"
+							min="500"
+							max="10000000"
+							name="<?php echo esc_attr( $demo_opt ); ?>[max_daily_tokens]"
+							value="<?php echo (int) $demo['max_daily_tokens']; ?>">
+						<p class="description">Valor recomendado para demo pública: <code>30000</code>.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-msg-len">Longitud máxima de mensaje del usuario (Demo)</label></th>
+					<td>
+						<input
+							type="number"
+							id="aiea-demo-msg-len"
+							class="small-text"
+							min="50"
+							max="2000"
+							name="<?php echo esc_attr( $demo_opt ); ?>[max_message_length]"
+							value="<?php echo (int) $demo['max_message_length']; ?>"> caracteres
+						<p class="description">Valor recomendado para demo pública: <code>500</code>.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-output-tokens">Máximo de tokens de salida por respuesta de OpenAI (Demo)</label></th>
+					<td>
+						<input
+							type="number"
+							id="aiea-demo-output-tokens"
+							class="small-text"
+							min="100"
+							max="1500"
+							name="<?php echo esc_attr( $demo_opt ); ?>[max_output_tokens]"
+							value="<?php echo (int) $demo['max_output_tokens']; ?>"> tokens
+						<p class="description">Valor recomendado para demo pública: <code>350</code>.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-cta-pro">URL del botón «Conocer Jora IA Pro»</label></th>
+					<td>
+						<input
+							type="url"
+							id="aiea-demo-cta-pro"
+							class="regular-text"
+							name="<?php echo esc_attr( $demo_opt ); ?>[cta_pro_url]"
+							value="<?php echo esc_attr( (string) $demo['cta_pro_url'] ); ?>"
+							placeholder="Opcional: configura aquí la URL de planes cuando esté disponible">
+						<p class="description">Se muestra en el chat cuando el visitante alcanza el límite de mensajes por sesión de la demo.</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-demo-cta-install">URL del botón «Solicitar instalación»</label></th>
+					<td>
+						<input
+							type="url"
+							id="aiea-demo-cta-install"
+							class="regular-text"
+							name="<?php echo esc_attr( $demo_opt ); ?>[cta_install_url]"
+							value="<?php echo esc_attr( (string) $demo['cta_install_url'] ); ?>"
+							placeholder="Opcional: configura aquí la URL de contacto/instalación cuando esté disponible">
+						<p class="description">Se muestra junto al botón de planes cuando el visitante alcanza el límite de consultas por sesión.</p>
+					</td>
+				</tr>
+			</table>
+		</div>
+
+		<div class="aiea-panel-card">
+			<h3>Límites operativos para tiendas comerciales</h3>
+			<p class="description">Configura los topes de uso del endpoint público para instalaciones comerciales estándar (cuando el modo demostración pública no está activo). Introduce <strong><code>0</code></strong> en cualquier campo si deseas dejar ese control <strong>sin límite</strong>.</p>
 
 			<table class="form-table" role="presentation">
 				<tr>

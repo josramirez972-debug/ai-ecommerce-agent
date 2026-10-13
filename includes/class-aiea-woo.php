@@ -313,14 +313,12 @@ class AI_Ecommerce_Agent_Woo {
 					: 'Precio no disponible';
 			}
 
-			// Descripción corta. Si está vacía, usar los primeros 30 palabras de la descripción completa.
-			$description = wp_strip_all_tags( $product->get_short_description() );
+			// Descripción corta acotada (máx 35 palabras). Si está vacía, usar las primeras 30 palabras de la descripción completa.
+			$raw_short   = wp_strip_all_tags( $product->get_short_description() );
+			$description = function_exists( 'wp_trim_words' ) ? wp_trim_words( $raw_short, 35, '…' ) : $raw_short;
 			if ( '' === $description ) {
-				$description = wp_trim_words(
-					wp_strip_all_tags( $product->get_description() ),
-					30,
-					'…'
-				);
+				$raw_full    = wp_strip_all_tags( $product->get_description() );
+				$description = function_exists( 'wp_trim_words' ) ? wp_trim_words( $raw_full, 30, '…' ) : $raw_full;
 			}
 
 			// URL de la imagen en tamaño thumbnail.
