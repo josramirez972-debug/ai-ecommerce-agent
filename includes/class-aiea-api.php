@@ -303,6 +303,11 @@ class AI_Ecommerce_Agent_API {
 			if ( is_wp_error( $result ) ) {
 				$err_code = $result->get_error_code();
 				if ( in_array( $err_code, [ 'aiea_daily_calls_limit', 'aiea_daily_tokens_limit' ], true ) ) {
+					if ( class_exists( 'AI_Ecommerce_Agent_Usage' ) ) {
+						AI_Ecommerce_Agent_Usage::revert_session_message( $session_id );
+					}
+					$rate_limit_passed = false;
+
 					return $result;
 				}
 

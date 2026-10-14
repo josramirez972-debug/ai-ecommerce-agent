@@ -100,7 +100,7 @@ class AI_Ecommerce_Agent_Usage {
 			'min_interval_seconds'         => 3,
 			'max_messages_per_ip_hour'     => 15,
 			'max_daily_openai_calls'       => 100,
-			'max_daily_tokens'             => 30000,
+			'max_daily_tokens'             => 150000,
 			'max_message_length'           => 500,
 			'max_output_tokens'            => 350,
 			'duplicate_window_seconds'     => 60,
@@ -133,6 +133,11 @@ class AI_Ecommerce_Agent_Usage {
 			$saved = [];
 		} else {
 			$saved = $raw_saved;
+			// Migración automática del valor heredado de tokens diarios si tenía el valor previo (30.000) o inferior.
+			if ( isset( $saved['max_daily_tokens'] ) && (int) $saved['max_daily_tokens'] <= 30000 ) {
+				$saved['max_daily_tokens'] = 150000;
+				update_option( self::OPTION_DEMO, $saved, false );
+			}
 		}
 
 		$merged = wp_parse_args( $saved, $defaults );
@@ -251,22 +256,24 @@ class AI_Ecommerce_Agent_Usage {
 
 	/**
 	 * Comprueba todos los límites de consumo antes de invocar OpenAI en el endpoint público:
-	 * - Presupuesto diario global de llamadas y tokens de OpenAI (incluyendo reservas activas en vuelo).
+	 * - Presupuesto diario global de llamadas y tokens de OpenAI (incluyendo reservas activas y estimación preventiva).
 	 * - Límite de sesiones nuevas por IP y por hora.
 	 * - Límite de mensajes por sesión pública (contador independiente del historial).
 	 * - Detección de mensajes duplicados consecutivos.
 	 *
-	 * @param string $client_ip    Dirección IP del visitante.
-	 * @param string $session_id   Token de sesión validado.
-	 * @param bool   $is_new_token True si el servidor acaba de emitir un nuevo token porque el visitante no envió uno.
-	 * @param string $message      Mensaje del visitante.
+	 * @param string $client_ip        Dirección IP del visitante.
+	 * @param string $session_id       Token de sesión validado.
+	 * @param bool   $is_new_token     True si el servidor acaba de emitir un nuevo token porque el visitante no envió uno.
+	 * @param string $message          Mensaje del visitante.
+	 * @param int    $estimated_tokens Estimación de tokens requeridos (0 para cálculo automático coherente).
 	 * @return true|WP_Error True si pasa todas las validaciones o WP_Error con código HTTP apropiado.
 	 */
 	public static function check_public_consumption_limits(
 		string $client_ip,
 		string $session_id,
 		bool $is_new_token,
-		string $message
+		string $message,
+		int $estimated_tokens = 0
 	) {
 		$limits  = self::get_effective_limits();
 		$is_demo = ! empty( $limits['is_demo'] );
@@ -304,11 +311,23 @@ class AI_Ecommerce_Agent_Usage {
 				return self::build_daily_limit_error( 'aiea_daily_calls_limit', $is_demo );
 			}
 
-			if ( $limits['max_daily_tokens'] > 0 && $effective_toks >= $limits['max_daily_tokens'] ) {
-				self::increment_stat_in_memory( $stats, 'rejected_by_limits', 1 );
-				self::write_stats_raw( $stats );
+			if ( $estimated_tokens <= 0 ) {
+				$estimated_tokens = self::estimate_initial_tokens( $message, $session_id );
+			}
+			$needed_tokens = max( self::MIN_TOKEN_RESERVATION, $estimated_tokens );
 
-				return self::build_daily_limit_error( 'aiea_daily_tokens_limit', $is_demo );
+			if ( $limits['max_daily_tokens'] > 0 ) {
+				$needed_tokens = min( $needed_tokens, (int) $limits['max_daily_tokens'] );
+
+				if (
+					$effective_toks >= $limits['max_daily_tokens']
+					|| ( $effective_toks > 0 && ( $effective_toks + $needed_tokens ) > $limits['max_daily_tokens'] )
+				) {
+					self::increment_stat_in_memory( $stats, 'rejected_by_limits', 1 );
+					self::write_stats_raw( $stats );
+
+					return self::build_daily_limit_error( 'aiea_daily_tokens_limit', $is_demo );
+				}
 			}
 		} finally {
 			self::release_global_lock( $global_lock );
@@ -444,6 +463,65 @@ class AI_Ecommerce_Agent_Usage {
 				$limits['duplicate_window_seconds'] + 5
 			);
 		}
+	}
+
+	/**
+	 * Revierte el contador de mensajes de la sesión y el detector de duplicados si la petición
+	 * fue rechazada por límite global diario antes de ejecutarse en OpenAI.
+	 *
+	 * @param string $session_id Token de sesión validado.
+	 * @return void
+	 */
+	public static function revert_session_message( string $session_id ): void {
+		$base_id = self::extract_base_session_id( $session_id );
+		if ( '' === $base_id ) {
+			return;
+		}
+
+		$sess_cnt_key = 'aiea_scnt_' . $base_id;
+		$sess_count   = (int) get_transient( $sess_cnt_key );
+		if ( $sess_count > 1 ) {
+			set_transient( $sess_cnt_key, $sess_count - 1, AI_Ecommerce_Agent_Session::SESSION_TTL );
+		} else {
+			delete_transient( $sess_cnt_key );
+		}
+
+		delete_transient( 'aiea_dup_' . $base_id );
+	}
+
+	/**
+	 * Calcula una estimación conservadora de tokens para la consulta antes de enviar a OpenAI.
+	 * Coherente con estimate_payload_tokens() para sincronizar validación inicial y reserva preventiva.
+	 *
+	 * @param string $message    Mensaje del usuario.
+	 * @param string $session_id Token o identificador de sesión.
+	 * @return int Cantidad estimada de tokens.
+	 */
+	public static function estimate_initial_tokens( string $message = '', string $session_id = '' ): int {
+		$limits     = self::get_effective_limits();
+		$max_output = isset( $limits['max_output_tokens'] ) && is_numeric( $limits['max_output_tokens'] )
+			? max( 100, (int) $limits['max_output_tokens'] )
+			: 350;
+
+		// El agente serializa directrices del sistema y esquemas de herramientas (~11 KB JSON -> ~2.750 tokens).
+		$base_chars    = 11000;
+		$msg_chars     = strlen( $message );
+		$history_chars = 0;
+
+		$base_id = self::extract_base_session_id( $session_id );
+		if ( '' !== $base_id ) {
+			$history = get_transient( 'aiea_hist_' . $base_id );
+			if ( is_array( $history ) ) {
+				$history_json = wp_json_encode( $history );
+				if ( is_string( $history_json ) ) {
+					$history_chars = strlen( $history_json );
+				}
+			}
+		}
+
+		$est_input = (int) ceil( ( $base_chars + $msg_chars + $history_chars ) / 4 );
+
+		return max( self::MIN_TOKEN_RESERVATION, $est_input + $max_output );
 	}
 
 	// =========================================================

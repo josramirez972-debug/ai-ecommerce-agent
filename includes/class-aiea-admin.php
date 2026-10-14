@@ -1786,7 +1786,7 @@ class AI_Ecommerce_Agent_Admin {
 							max="10000000"
 							name="<?php echo esc_attr( $demo_opt ); ?>[max_daily_tokens]"
 							value="<?php echo (int) $demo['max_daily_tokens']; ?>">
-						<p class="description">Valor recomendado para demo pública: <code>30000</code>.</p>
+						<p class="description">Valor recomendado para demo pública: <code>150000</code>.</p>
 					</td>
 				</tr>
 				<tr>
