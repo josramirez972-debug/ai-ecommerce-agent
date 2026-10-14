@@ -614,13 +614,13 @@ class AI_Ecommerce_Agent_OpenAI {
 			return AI_Ecommerce_Agent_Woo::buscar_productos( $term, $limit, $page );
 		}
 
-		if ( 'anadir_al_carrito' === $name || 'añadir_al_carrito' === $name ) {
-			$product_id   = $args['product_id'] ?? 0;
-			$quantity     = $args['quantity'] ?? 1;
-			$variation_id = $args['variation_id'] ?? 0;
+		if ( 'anadir_al_carrito' === $name || 'añadir_al_carrito' === $name || 'add_to_cart' === $name || 'agregar_al_carrito' === $name || 'anadir_carrito' === $name || 'agregar_carrito' === $name ) {
+			$product_id   = $args['product_id'] ?? $args['id'] ?? $args['producto_id'] ?? $args['term'] ?? $args['nombre'] ?? 0;
+			$quantity     = $args['quantity'] ?? $args['cantidad'] ?? 1;
+			$variation_id = $args['variation_id'] ?? $args['variacion_id'] ?? 0;
 			$attributes   = isset( $args['attributes'] ) && is_array( $args['attributes'] )
 				? $args['attributes']
-				: [];
+				: ( isset( $args['atributos'] ) && is_array( $args['atributos'] ) ? $args['atributos'] : [] );
 
 			return AI_Ecommerce_Agent_Woo::añadir_al_carrito( $product_id, $quantity, $variation_id, $attributes );
 		}
@@ -778,7 +778,10 @@ class AI_Ecommerce_Agent_OpenAI {
 			'/\b(cobraron\s+dos\s+veces|doble\s+cobro|cobro\s+duplicado|cobro\s+doble|cobro\s+indebido|me\s+descontaron\s+dos\s+veces)\b/u',
 			'/\b(solicitar|pedir|quiero|exijo)\s+(un\s+)?reembolso\b/u',
 			'/\b(devoluci[oó]n\s+de\s+(mi\s+)?dinero|que\s+me\s+devuelvan\s+(el|mi)\s+dinero)\b/u',
-			'/\b(tengo\s+un\s+problema|inconformidad)\s+con\s+(mi|el)\s+(compra|pedido)\b/u',
+			'/\b(tengo\s+un\s+problema|inconformidad|problema|inconveniente)\s+con\s+(mi|el)\s+(compra|pedido|paquete|envio|entrega)\b/u',
+			'/\b(solucion|respuesta)\s+(urgente\s+)?(con|para|sobre|a)\s+(mi|el)\s+(compra|pedido|caso|reclamo)\b/u',
+			'/\b(nadie|no)\s+(me\s+)?(responde|contesta|da\s+solucion|da\s+respuesta)\b/u',
+			'/\b(necesito|quiero|exijo)\s+(una\s+)?(solucion|respuesta)\s+(urgente\s+)?(con|para|sobre|a)\s+(mi|el)\s+(compra|pedido|caso)\b/u',
 			'/\bcancelar\s+(un|el|mi)?\s*pedido\s+por\s+(un\s+)?problema\b/u',
 		];
 
@@ -812,11 +815,16 @@ class AI_Ecommerce_Agent_OpenAI {
 		);
 
 		$patterns = [
-			'/\b(muestrame|muestra|ver|mostrar|listar|tienen|que\s+tienen|que\s+hay|venden|catalogo|productos?)\b/u',
-			'/\b(proteina|creatina|aminoacido|colageno|vitamina|suplemento|hmb|whey|isolate|preentreno|omega)\b/u',
-			'/\b(cuanto\s+cuesta|precio|comprar|anadir|agregar|carrito|disponible|stock)\b/u',
-			'/\b(recomiendame|recomienda|busco|quiero\s+(ver|saber|comprar|consultar|adquirir|llevar))\b/u',
-			'/\b(esta\s+bien|bueno|ok|vale|listo),?\s+(muestrame|tienen|quiero|cuentame|que|como|vamos)\b/u',
+			'/\b(muestrame|muestranos|muestra|ver|mostrar|listar|ensename|catalogo|productos?|articulos?|referencias?)\b/u',
+			'/\b(proteinas?|creatinas?|aminoacidos?|colagenos?|vitaminas?|suplementos?|hmb|whey|isolate|aislad[oa]s?|preentrenos?|omegas?|glutaminas?|bcaa|capsulas?|pastillas?|polvo|shakers?|barras?)\b/u',
+			'/\b(tienen|tienes|hay|venden|vendes|ofrecen|ofreces|manejan|manejas|disponen|dispones)\b/u',
+			'/\b(que\s+hay|que\s+tienen|que\s+tienes|que\s+venden|que\s+vendes|que\s+ofrecen|que\s+ofreces)\b/u',
+			'/\b(cuanto\s+(cuesta|vale)|que\s+(vale|cuesta)|precio|precios|costo|costos|valor|comprar|quiero\s+comprar|adquirir|llevar|anadir|anadelo|anadela|agregar|agregalo|agregala|carrito|checkout)\b/u',
+			'/\b(disponible|disponibles|disponibilidad|stock|existencias?|inventario)\b/u',
+			'/\b(sabores?|presentacion(es)?|tamanos?|medidas?|gramos?|libras?|kilos?|servicios?|porciones?|dosis|ingredientes?)\b/u',
+			'/\b(recomiendame|recomienda|recomiendas|busco|necesito\s+(un|una|algo)\s+(para|de|suplemento|producto)|asesorame|que\s+me\s+recomiendas?|orientame)\b/u',
+			'/\b(envio|envios|cobertura|ciudades?|domicilio|domicilios|medellin|bogota|cali|barranquilla|tiempo\s+de\s+entrega|cuanto\s+tarda|metodos?\s+de\s+pago|formas?\s+de\s+pago|pagos?|pagar|transferencia|efectivo|horarios?|atencion|contacto|telefono|whatsapp|direccion)\b/u',
+			'/\b(esta\s+bien|bueno|ok|vale|listo|dejemos\s+eso|cambiando\s+de\s+tema),?\s+(muestrame|tienen|tienes|quiero|cuentame|que|como|vamos|dime)\b/u',
 		];
 
 		foreach ( $patterns as $pattern ) {

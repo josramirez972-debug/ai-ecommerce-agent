@@ -569,8 +569,8 @@ class AI_Ecommerce_Agent_Woo {
 			];
 		}
 
-		// 3. Validar existencia y estado del producto.
-		if ( ! is_numeric( $product_id ) || (int) $product_id <= 0 ) {
+		// 3. Validar y resolver el producto en WooCommerce.
+		if ( empty( $product_id ) || ( is_numeric( $product_id ) && (int) $product_id <= 0 ) ) {
 			return [
 				'exito'   => false,
 				'codigo'  => 'producto_invalido',
@@ -578,15 +578,50 @@ class AI_Ecommerce_Agent_Woo {
 			];
 		}
 
-		$product_id   = (int) $product_id;
+		$product      = null;
 		$variation_id = is_numeric( $variation_id ) && (int) $variation_id > 0 ? (int) $variation_id : 0;
-		$product      = wc_get_product( $product_id );
+
+		if ( is_numeric( $product_id ) && (int) $product_id > 0 ) {
+			$product = wc_get_product( (int) $product_id );
+		} elseif ( is_string( $product_id ) && '' !== trim( $product_id ) ) {
+			$trimmed = trim( $product_id );
+			if ( is_numeric( $trimmed ) && (int) $trimmed > 0 ) {
+				$product = wc_get_product( (int) $trimmed );
+			} else {
+				// 3.1 Intentar resolver por slug/path
+				$page_by_path = get_page_by_path( sanitize_title( $trimmed ), OBJECT, 'product' );
+				if ( $page_by_path instanceof WP_Post ) {
+					$product = wc_get_product( (int) $page_by_path->ID );
+				}
+				// 3.2 Intentar resolver por SKU
+				if ( ! $product instanceof WC_Product && function_exists( 'wc_get_product_id_by_sku' ) ) {
+					$sku_id = wc_get_product_id_by_sku( $trimmed );
+					if ( $sku_id > 0 ) {
+						$product = wc_get_product( (int) $sku_id );
+					}
+				}
+				// 3.3 Intentar resolver mediante coincidencia en título sin fallback general
+				if ( ! $product instanceof WC_Product && ! self::is_generic_query( $trimmed ) ) {
+					$matched_posts = get_posts( [
+						'post_type'      => 'product',
+						'post_status'    => 'publish',
+						's'              => $trimmed,
+						'posts_per_page' => 1,
+					] );
+					if ( ! empty( $matched_posts ) && isset( $matched_posts[0]->ID ) ) {
+						$product = wc_get_product( (int) $matched_posts[0]->ID );
+					}
+				}
+			}
+		}
 
 		// Si el modelo envió el ID de una variación en product_id sin variation_id, resolver su producto padre para validarlo íntegramente.
 		if ( $product instanceof WC_Product_Variation && 0 === $variation_id ) {
 			$variation_id = $product->get_id();
 			$product_id   = $product->get_parent_id();
 			$product      = wc_get_product( $product_id );
+		} elseif ( $product instanceof WC_Product ) {
+			$product_id = (int) $product->get_id();
 		}
 
 		if ( ! $product instanceof WC_Product ) {
@@ -731,15 +766,30 @@ class AI_Ecommerce_Agent_Woo {
 			$cart_item_key = false;
 		}
 
+		$wc_error_message = '';
+		if ( function_exists( 'wc_get_notices' ) ) {
+			$notices = wc_get_notices( 'error' );
+			if ( ! empty( $notices ) && is_array( $notices ) ) {
+				$first = reset( $notices );
+				$wc_error_message = is_array( $first ) && isset( $first['notice'] )
+					? wp_strip_all_tags( $first['notice'] )
+					: ( is_string( $first ) ? wp_strip_all_tags( $first ) : '' );
+			}
+		}
+
 		if ( function_exists( 'wc_clear_notices' ) ) {
 			wc_clear_notices();
 		}
 
 		if ( false === $cart_item_key || '' === (string) $cart_item_key ) {
+			$fail_msg = '' !== $wc_error_message
+				? $wc_error_message
+				: sprintf( 'WooCommerce no pudo añadir "%s" al carrito. Verifica la disponibilidad e inténtalo de nuevo.', $target_product->get_name() );
+
 			return [
 				'exito'   => false,
 				'codigo'  => 'error_al_anadir',
-				'mensaje' => sprintf( 'WooCommerce no pudo añadir "%s" al carrito. Verifica la disponibilidad e inténtalo de nuevo.', $target_product->get_name() ),
+				'mensaje' => $fail_msg,
 			];
 		}
 
@@ -783,6 +833,16 @@ class AI_Ecommerce_Agent_Woo {
 
 		if ( property_exists( WC(), 'session' ) && null === WC()->session && method_exists( WC(), 'initialize_session' ) ) {
 			WC()->initialize_session();
+		}
+
+		if ( property_exists( WC(), 'session' ) && WC()->session && method_exists( WC()->session, 'has_session' ) && ! WC()->session->has_session() ) {
+			if ( method_exists( WC()->session, 'set_customer_session_cookie' ) ) {
+				WC()->session->set_customer_session_cookie( true );
+			}
+		}
+
+		if ( property_exists( WC(), 'customer' ) && ( null === WC()->customer || ! WC()->customer instanceof WC_Customer ) && class_exists( 'WC_Customer' ) ) {
+			WC()->customer = new WC_Customer( get_current_user_id(), true );
 		}
 
 		if ( property_exists( WC(), 'cart' ) && null === WC()->cart && method_exists( WC(), 'initialize_cart' ) ) {

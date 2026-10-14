@@ -121,30 +121,55 @@
 		btn.classList.add('aiea-card-btn--loading');
 
 		var addUrl = AIEAPublic.addToCartUrl || '/wp-json/aiea/v1/cart/add';
-		var headers = {
-			'Content-Type': 'application/json'
-		};
-		if (AIEAPublic.nonce) {
-			headers['X-WP-Nonce'] = AIEAPublic.nonce;
+
+		function sendAddRequest(useNonce) {
+			var headers = {
+				'Content-Type': 'application/json'
+			};
+			if (useNonce && AIEAPublic.nonce) {
+				headers['X-WP-Nonce'] = AIEAPublic.nonce;
+			}
+
+			return fetch(addUrl, {
+				method: 'POST',
+				credentials: 'same-origin',
+				headers: headers,
+				body: JSON.stringify({
+					product_id: productId,
+					id: productId,
+					quantity: 1
+				})
+			}).then(function (res) {
+				return res.json().catch(function () { return {}; }).then(function (data) {
+					return {
+						ok: res.ok,
+						status: res.status,
+						data: data || {}
+					};
+				});
+			});
 		}
 
-		fetch(addUrl, {
-			method: 'POST',
-			credentials: 'same-origin',
-			headers: headers,
-			body: JSON.stringify({ product_id: productId, quantity: 1 })
-		})
-			.then(function (res) {
-				return res.json().catch(function () { return {}; });
+		sendAddRequest(true)
+			.then(function (result) {
+				if (!result.ok && result.status === 403 && result.data && result.data.code === 'rest_cookie_invalid_nonce') {
+					AIEAPublic.nonce = '';
+					return sendAddRequest(false);
+				}
+				return result;
 			})
-			.then(function (resData) {
+			.then(function (result) {
 				btn.classList.remove('aiea-card-btn--loading');
-				if (resData && resData.success) {
+				var resData = result.data;
+
+				if (result.ok && resData && resData.success) {
 					btn.textContent = '¡Añadido!';
+					btn.classList.add('aiea-card-btn--success');
 					setTimeout(function () {
 						btn.disabled = false;
 						btn.textContent = originalText;
-					}, 2000);
+						btn.classList.remove('aiea-card-btn--success');
+					}, 2500);
 
 					if (resData.cart) {
 						notifyWooCommerceCartUpdated(resData.cart);
@@ -169,7 +194,7 @@
 				} else {
 					btn.disabled = false;
 					btn.textContent = originalText;
-					var errMsg = (resData && resData.mensaje) || 'No se pudo añadir el producto al carrito.';
+					var errMsg = (resData && (resData.mensaje || resData.message)) || 'No se pudo añadir el producto al carrito. Por favor, verifica la disponibilidad e inténtalo de nuevo.';
 					appendMessageElement('assistant', errMsg);
 				}
 			})
@@ -177,7 +202,7 @@
 				btn.classList.remove('aiea-card-btn--loading');
 				btn.disabled = false;
 				btn.textContent = originalText;
-				appendMessageElement('assistant', 'Error de conexión al añadir al carrito. Inténtalo de nuevo.');
+				appendMessageElement('assistant', 'Hubo un error de conexión al añadir al carrito. Por favor, inténtalo de nuevo.');
 			});
 	}
 

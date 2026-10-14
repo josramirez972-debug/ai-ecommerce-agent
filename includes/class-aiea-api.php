@@ -95,9 +95,10 @@ class AI_Ecommerce_Agent_API {
 				'permission_callback' => '__return_true',
 				'args'                => [
 					'product_id'   => [
-						'required'          => true,
-						'type'              => 'integer',
-						'sanitize_callback' => 'absint',
+						'required' => false,
+					],
+					'id'           => [
+						'required' => false,
 					],
 					'quantity'     => [
 						'required'          => false,
@@ -660,10 +661,25 @@ class AI_Ecommerce_Agent_API {
 	 * @return WP_REST_Response
 	 */
 	public static function public_add_to_cart( WP_REST_Request $request ) {
-		$product_id   = (int) $request->get_param( 'product_id' );
-		$quantity     = max( 1, (int) $request->get_param( 'quantity' ) );
-		$variation_id = (int) $request->get_param( 'variation_id' );
-		$raw_attrs    = $request->get_param( 'attributes' );
+		$json_params = method_exists( $request, 'get_json_params' ) ? $request->get_json_params() : [];
+		$json_params = is_array( $json_params ) ? $json_params : [];
+
+		$raw_prod_id = $request->get_param( 'product_id' );
+		if ( null === $raw_prod_id || '' === $raw_prod_id ) {
+			$raw_prod_id = $request->get_param( 'id' );
+		}
+		if ( null === $raw_prod_id || '' === $raw_prod_id ) {
+			$raw_prod_id = $request->get_param( 'producto_id' );
+		}
+		if ( null === $raw_prod_id || '' === $raw_prod_id ) {
+			$raw_prod_id = $json_params['product_id'] ?? $json_params['id'] ?? $json_params['producto_id'] ?? null;
+		}
+
+		$product_id   = is_scalar( $raw_prod_id ) ? ( is_numeric( $raw_prod_id ) ? (int) $raw_prod_id : trim( (string) $raw_prod_id ) ) : 0;
+		$raw_qty      = $request->get_param( 'quantity' ) ?: ( $json_params['quantity'] ?? 1 );
+		$quantity     = max( 1, (int) $raw_qty );
+		$variation_id = (int) ( $request->get_param( 'variation_id' ) ?: ( $json_params['variation_id'] ?? 0 ) );
+		$raw_attrs    = $request->get_param( 'attributes' ) ?: ( $json_params['attributes'] ?? [] );
 		$attributes   = is_array( $raw_attrs ) ? $raw_attrs : [];
 
 		if ( ! class_exists( 'AI_Ecommerce_Agent_Woo' ) ) {

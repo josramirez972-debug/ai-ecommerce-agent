@@ -675,3 +675,9 @@
 	cursor: not-allowed !important;
 }
 
+.aiea-card-btn--success {
+	background: #10b981 !important;
+	color: #ffffff !important;
+}
+
+
