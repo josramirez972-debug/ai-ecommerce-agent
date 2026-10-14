@@ -23,6 +23,31 @@ class AI_Ecommerce_Agent_Woo {
 	const MAX_CART_QUANTITY = 20;
 
 	/**
+	 * Últimos productos normalizados encontrados en la búsqueda de la sesión/turno actual.
+	 *
+	 * @var array[]
+	 */
+	private static array $last_search_results = [];
+
+	/**
+	 * Devuelve los últimos productos normalizados encontrados.
+	 *
+	 * @return array[]
+	 */
+	public static function get_last_search_results(): array {
+		return self::$last_search_results;
+	}
+
+	/**
+	 * Restablece los últimos productos normalizados encontrados.
+	 *
+	 * @return void
+	 */
+	public static function reset_last_search_results(): void {
+		self::$last_search_results = [];
+	}
+
+	/**
 	 * Busca productos publicados en WooCommerce con soporte de paginación y metadatos.
 	 *
 	 * Devuelve un array con metadatos (total, página, páginas, hay_más) y productos normalizados,
@@ -59,37 +84,151 @@ class AI_Ecommerce_Agent_Woo {
 			'paginate' => true,
 		];
 
-		// Mejora 1: Detección robusta de consultas generales del catálogo.
+		// 1. Detección robusta de consultas generales del catálogo.
 		if ( self::is_generic_query( $term ) ) {
 			$raw_result = wc_get_products( $query_args );
 			$extracted  = self::extract_query_results( $raw_result, $limit );
+			$normalized = self::normalize_products( $extracted['products'] );
+			self::$last_search_results = $normalized;
 
 			return [
 				'total'     => $extracted['total'],
 				'pagina'    => $page,
 				'paginas'   => $extracted['max_pages'],
 				'hay_mas'   => $page < $extracted['max_pages'],
-				'productos' => self::normalize_products( $extracted['products'] ),
+				'productos' => $normalized,
 			];
 		}
 
-		// Búsqueda textual específica por término.
-		$query_args['s'] = $term;
-		$raw_result      = wc_get_products( $query_args );
-		$extracted       = self::extract_query_results( $raw_result, $limit );
+		// 2. Búsqueda determinista tolerante a variantes léxicas, unidades y fallback controlado.
+		$candidates = self::generate_search_candidates( $term );
+		$extracted  = [ 'products' => [], 'total' => 0, 'max_pages' => 0 ];
 
-		// Mejora 3: Si no hay resultados textuales, intentar búsqueda por categoría (product_cat).
+		foreach ( $candidates as $candidate_term ) {
+			$query_args['s'] = $candidate_term;
+			$raw_result      = wc_get_products( $query_args );
+			$extracted       = self::extract_query_results( $raw_result, $limit );
+
+			if ( ! empty( $extracted['products'] ) ) {
+				break;
+			}
+		}
+
+		// 3. Si no hay resultados textuales, intentar búsqueda por categoría (product_cat).
 		if ( empty( $extracted['products'] ) ) {
 			$extracted = self::buscar_por_categoria( $term, $limit, $page );
 		}
+
+		$normalized = self::normalize_products( $extracted['products'] );
+		self::$last_search_results = $normalized;
 
 		return [
 			'total'     => $extracted['total'],
 			'pagina'    => $page,
 			'paginas'   => $extracted['max_pages'],
 			'hay_mas'   => $page < $extracted['max_pages'],
-			'productos' => self::normalize_products( $extracted['products'] ),
+			'productos' => $normalized,
 		];
+	}
+
+	/**
+	 * Genera candidatos de búsqueda deterministas tolerantes a variaciones morfológicas,
+	 * separación de unidades y palabras clave relevantes.
+	 *
+	 * @param string $term Término original ingresado.
+	 * @return string[] Lista ordenada de términos de búsqueda candidatos.
+	 */
+	public static function generate_search_candidates( string $term ): array {
+		$raw = trim( $term );
+		if ( '' === $raw ) {
+			return [];
+		}
+
+		if ( function_exists( 'mb_strtolower' ) ) {
+			$normalized = mb_strtolower( $raw, 'UTF-8' );
+		} else {
+			$normalized = strtolower( $raw );
+		}
+
+		// Eliminar signos de puntuación e interrogaciones.
+		$normalized = preg_replace( '/[¿?¡!.,;:_\-\/]/u', ' ', $normalized );
+
+		// Normalizar acentos.
+		$normalized = strtr(
+			$normalized,
+			[
+				'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u',
+				'ü' => 'u', 'à' => 'a', 'è' => 'e', 'ì' => 'i', 'ò' => 'o', 'ù' => 'u',
+			]
+		);
+		$normalized = trim( preg_replace( '/\s+/u', ' ', (string) $normalized ) );
+
+		// Separar números unidos a unidades comunes (ej. 300g -> 300 g, 2lb -> 2 lb, 500mg -> 500 mg).
+		$with_units = preg_replace(
+			'/(\d+)\s*(g|gr|gramos|mg|kg|kilos|lb|lbs|libras|ml|l|litros|oz|caps|capsulas|tabletas|sobres)\b/iu',
+			'$1 $2',
+			$normalized
+		);
+		$with_units = trim( preg_replace( '/\s+/u', ' ', (string) $with_units ) );
+
+		// Variantes morfológicas habituales en ecommerce y nutrición deportiva.
+		$variants_map = [
+			'/\bmonohidratada\b/u'    => 'monohidrato',
+			'/\bmonohidratado\b/u'    => 'monohidrato',
+			'/\baislada\b/u'          => 'isolate',
+			'/\baislado\b/u'          => 'isolate',
+			'/\bhidrolizada\b/u'      => 'hidrolizado',
+			'/\bcreapure\b/u'         => 'creatina',
+			'/\bmultivitaminico\b/u'  => 'multivitamin',
+			'/\bmultivitaminicos\b/u' => 'multivitamin',
+			'/\bbcaas\b/u'            => 'bcaa',
+			'/\bproteinas\b/u'        => 'proteina',
+		];
+
+		$morph_term = preg_replace( array_keys( $variants_map ), array_values( $variants_map ), $with_units );
+		$morph_term = trim( preg_replace( '/\s+/u', ' ', (string) $morph_term ) );
+
+		// Limpieza de stopwords y mención a la tienda (ej. 'nutrix', 'de', 'para')
+		$stopwords = [ 'de', 'del', 'la', 'el', 'los', 'las', 'en', 'para', 'con', 'por', 'un', 'una', 'y', 'nutrix' ];
+		$words = preg_split( '/\s+/u', $morph_term );
+		$filtered_words = array_values( array_filter( $words, function( $w ) use ( $stopwords ) {
+			return '' !== $w && ! in_array( $w, $stopwords, true );
+		} ) );
+		$cleaned_term = implode( ' ', $filtered_words );
+
+		$candidates = [];
+		$candidates[] = $raw;
+
+		if ( $normalized !== $raw ) {
+			$candidates[] = $normalized;
+		}
+		if ( $with_units !== $normalized && $with_units !== $raw ) {
+			$candidates[] = $with_units;
+		}
+		if ( $morph_term !== $with_units && $morph_term !== $normalized ) {
+			$candidates[] = $morph_term;
+		}
+		if ( '' !== $cleaned_term && ! in_array( $cleaned_term, $candidates, true ) ) {
+			$candidates[] = $cleaned_term;
+		}
+
+		// Fallback controlado con palabras clave específicas relevantes (no genéricas)
+		$generic_skip = [ 'polvo', 'capsulas', 'tabletas', 'suplemento', 'suplementos', 'sabor', '300', '500', '1000', '60', 'g', 'gr', 'mg', 'lb', 'ml', 'sobres' ];
+		$specific_keywords = array_values( array_filter( $filtered_words, function( $w ) use ( $generic_skip ) {
+			return strlen( $w ) >= 4 && ! in_array( $w, $generic_skip, true );
+		} ) );
+
+		if ( count( $specific_keywords ) > 0 ) {
+			$keyword_cand = implode( ' ', array_slice( $specific_keywords, 0, 2 ) );
+			if ( '' !== $keyword_cand && ! in_array( $keyword_cand, $candidates, true ) ) {
+				$candidates[] = $keyword_cand;
+			}
+			if ( count( $specific_keywords ) > 1 && ! in_array( $specific_keywords[0], $candidates, true ) ) {
+				$candidates[] = $specific_keywords[0];
+			}
+		}
+
+		return array_values( array_unique( array_filter( $candidates ) ) );
 	}
 
 	/**
@@ -327,15 +466,34 @@ class AI_Ecommerce_Agent_Woo {
 				? (string) wp_get_attachment_image_url( $image_id, 'thumbnail' )
 				: '';
 
+			// Oferta y precios regulares/oferta
+			$is_on_sale         = method_exists( $product, 'is_on_sale' ) ? (bool) $product->is_on_sale() : false;
+			$regular_price      = method_exists( $product, 'get_regular_price' ) ? $product->get_regular_price() : '';
+			$sale_price         = method_exists( $product, 'get_sale_price' ) ? $product->get_sale_price() : '';
+			$regular_price_text = ( '' !== (string) $regular_price && function_exists( 'wc_price' ) )
+				? html_entity_decode( wp_strip_all_tags( wc_price( $regular_price ) ), ENT_QUOTES, 'UTF-8' )
+				: null;
+			$sale_price_text    = ( $is_on_sale && '' !== (string) $sale_price && function_exists( 'wc_price' ) )
+				? html_entity_decode( wp_strip_all_tags( wc_price( $sale_price ) ), ENT_QUOTES, 'UTF-8' )
+				: null;
+
+			$is_in_stock    = method_exists( $product, 'is_in_stock' ) ? (bool) $product->is_in_stock() : false;
+			$is_purchasable = method_exists( $product, 'is_purchasable' ) ? (bool) $product->is_purchasable() : false;
+			$is_variable    = $product instanceof WC_Product_Variable || 'variable' === $product->get_type();
+
 			$item = [
-				'id'          => $id,
-				'tipo'        => $product->get_type(),
-				'nombre'      => $product->get_name(),
-				'precio'      => $price_text,
-				'descripcion' => '' !== $description ? $description : 'Sin descripción.',
-				'disponible'  => $product->is_in_stock() && $product->is_purchasable(),
-				'url'         => (string) get_permalink( $id ),
-				'imagen'      => $image_url,
+				'id'             => $id,
+				'tipo'           => $product->get_type(),
+				'nombre'         => $product->get_name(),
+				'precio'         => $price_text,
+				'precio_regular' => $regular_price_text,
+				'precio_oferta'  => $sale_price_text,
+				'en_oferta'      => $is_on_sale,
+				'descripcion'    => '' !== $description ? $description : 'Sin descripción.',
+				'disponible'     => $is_in_stock && $is_purchasable,
+				'comprable'      => $is_in_stock && $is_purchasable && ! $is_variable,
+				'url'            => (string) get_permalink( $id ),
+				'imagen'         => $image_url,
 			];
 
 			if ( $product instanceof WC_Product_Variable ) {

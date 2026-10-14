@@ -448,4 +448,230 @@
 		max-height: 540px;
 		border-radius: 14px;
 	}
+
+	.aiea-product-card {
+		flex: 0 0 175px !important;
+		width: 175px !important;
+	}
 }
+
+/* Enlaces Markdown seguros en burbujas */
+.aiea-chat-link {
+	color: var(--aiea-primary, #2563eb);
+	font-weight: 600;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	word-break: break-word;
+	transition: color 0.15s ease;
+}
+
+.aiea-chat-link:hover,
+.aiea-chat-link:focus-visible {
+	color: #1d4ed8;
+	text-decoration: underline;
+}
+
+/* Contenedor horizontal desplazable de tarjetas de productos */
+.aiea-product-cards-container {
+	display: flex;
+	gap: 10px;
+	overflow-x: auto;
+	padding: 6px 2px 10px 2px;
+	margin-top: 8px;
+	scroll-snap-type: x mandatory;
+	-webkit-overflow-scrolling: touch;
+	scrollbar-width: thin;
+	scrollbar-color: #cbd5e1 transparent;
+	max-width: 100%;
+}
+
+.aiea-product-cards-container::-webkit-scrollbar {
+	height: 5px;
+}
+
+.aiea-product-cards-container::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.aiea-product-cards-container::-webkit-scrollbar-thumb {
+	background: #cbd5e1;
+	border-radius: 999px;
+}
+
+/* Tarjeta individual de producto */
+.aiea-product-card {
+	flex: 0 0 195px;
+	width: 195px;
+	background: #ffffff;
+	border: 1px solid #e5e7eb;
+	border-radius: 12px;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	scroll-snap-align: start;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+	transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.aiea-product-card:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.09);
+}
+
+.aiea-product-card-image {
+	width: 100%;
+	height: 110px;
+	background: #f8fafc;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	border-bottom: 1px solid #f1f5f9;
+}
+
+.aiea-product-card-image img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.aiea-product-card-placeholder {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	color: #94a3b8;
+	background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+	font-size: 26px;
+}
+
+.aiea-product-card-placeholder svg {
+	width: 32px;
+	height: 32px;
+	fill: currentColor;
+	opacity: 0.6;
+}
+
+.aiea-product-card-body {
+	padding: 10px 11px 8px 11px;
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	gap: 5px;
+}
+
+.aiea-product-card-title {
+	font-size: 12.5px;
+	font-weight: 600;
+	color: #0f172a;
+	line-height: 1.3;
+	margin: 0;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	min-height: 32px;
+}
+
+.aiea-product-card-price {
+	font-size: 13px;
+	font-weight: 700;
+	color: #2563eb;
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	flex-wrap: wrap;
+	line-height: 1.2;
+}
+
+.aiea-product-card-price .aiea-price-sale {
+	color: #dc2626;
+	font-weight: 700;
+}
+
+.aiea-product-card-price .aiea-price-regular {
+	color: #94a3b8;
+	font-size: 11px;
+	text-decoration: line-through;
+	font-weight: 400;
+}
+
+.aiea-stock-badge {
+	display: inline-flex;
+	align-items: center;
+	align-self: flex-start;
+	font-size: 10.5px;
+	font-weight: 600;
+	padding: 2px 6px;
+	border-radius: 4px;
+	line-height: 1.2;
+}
+
+.aiea-stock-badge--in {
+	background: #ecfdf5;
+	color: #047857;
+	border: 1px solid #a7f3d0;
+}
+
+.aiea-stock-badge--out {
+	background: #fef2f2;
+	color: #b91c1c;
+	border: 1px solid #fecaca;
+}
+
+.aiea-product-card-actions {
+	padding: 0 11px 11px 11px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.aiea-card-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 6px 10px;
+	font-size: 11.5px;
+	font-weight: 600;
+	border-radius: 6px;
+	text-decoration: none !important;
+	cursor: pointer;
+	text-align: center;
+	transition: background-color 0.15s ease, opacity 0.15s ease;
+	border: none;
+	width: 100%;
+	line-height: 1.3;
+}
+
+.aiea-card-btn--primary {
+	background: #2563eb;
+	color: #ffffff !important;
+}
+
+.aiea-card-btn--primary:hover,
+.aiea-card-btn--primary:focus-visible {
+	background: #1d4ed8;
+	color: #ffffff !important;
+}
+
+.aiea-card-btn--secondary {
+	background: #f1f5f9;
+	color: #334155 !important;
+	border: 1px solid #cbd5e1;
+}
+
+.aiea-card-btn--secondary:hover,
+.aiea-card-btn--secondary:focus-visible {
+	background: #e2e8f0;
+	color: #1e293b !important;
+}
+
+.aiea-card-btn:disabled,
+.aiea-card-btn--loading {
+	opacity: 0.65;
+	cursor: not-allowed !important;
+}
+

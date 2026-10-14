@@ -131,6 +131,10 @@ class AI_Ecommerce_Agent_OpenAI {
 			? min( 1000, (int) $effective_limits['max_output_tokens'] )
 			: self::MAX_OUTPUT_TOKENS;
 
+		if ( class_exists( 'AI_Ecommerce_Agent_Woo' ) ) {
+			AI_Ecommerce_Agent_Woo::reset_last_search_results();
+		}
+
 		// --- 4. Ciclo controlado de llamadas y ejecución de herramientas (hasta MAX_TOOL_ROUNDS rondas) ---
 		for ( $round = 1; $round <= self::MAX_TOOL_ROUNDS; $round++ ) {
 			$payload = [
@@ -164,6 +168,7 @@ class AI_Ecommerce_Agent_OpenAI {
 					AI_Ecommerce_Agent_Session::save_turn( $session_id, $message, $result['message'] );
 					$result['session_id']   = $session_id;
 					$result['cart_updated'] = $cart_updated;
+					$result['products']     = class_exists( 'AI_Ecommerce_Agent_Woo' ) ? AI_Ecommerce_Agent_Woo::get_last_search_results() : [];
 				}
 				return $result;
 			}
@@ -238,6 +243,7 @@ class AI_Ecommerce_Agent_OpenAI {
 			AI_Ecommerce_Agent_Session::save_turn( $session_id, $message, $result['message'] );
 			$result['session_id']   = $session_id;
 			$result['cart_updated'] = $cart_updated;
+			$result['products']     = class_exists( 'AI_Ecommerce_Agent_Woo' ) ? AI_Ecommerce_Agent_Woo::get_last_search_results() : [];
 		}
 
 		return $result;

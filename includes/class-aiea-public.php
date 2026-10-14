@@ -242,6 +242,7 @@ class AI_Ecommerce_Agent_Public {
 			'AIEAPublic',
 			[
 				'restUrl'        => esc_url_raw( rest_url( 'aiea/v1/chat/public' ) ),
+				'addToCartUrl'   => esc_url_raw( rest_url( 'aiea/v1/cart/add' ) ),
 				'wcFragmentsUrl' => esc_url_raw( add_query_arg( 'wc-ajax', 'get_refreshed_fragments', home_url( '/' ) ) ),
 				'nonce'          => wp_create_nonce( 'wp_rest' ),
 				'agentName'      => $agent_name,

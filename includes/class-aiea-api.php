@@ -84,6 +84,40 @@ class AI_Ecommerce_Agent_API {
 				],
 			]
 		);
+
+		// Endpoint público para añadir productos al carrito desde tarjetas interactivas sin invocar a OpenAI.
+		register_rest_route(
+			'aiea/v1',
+			'/cart/add',
+			[
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => [ __CLASS__, 'public_add_to_cart' ],
+				'permission_callback' => '__return_true',
+				'args'                => [
+					'product_id'   => [
+						'required'          => true,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					],
+					'quantity'     => [
+						'required'          => false,
+						'type'              => 'integer',
+						'default'           => 1,
+						'sanitize_callback' => 'absint',
+					],
+					'variation_id' => [
+						'required'          => false,
+						'type'              => 'integer',
+						'default'           => 0,
+						'sanitize_callback' => 'absint',
+					],
+					'attributes'   => [
+						'required' => false,
+						'type'     => 'object',
+					],
+				],
+			]
+		);
 	}
 
 	/**
@@ -134,6 +168,7 @@ class AI_Ecommerce_Agent_API {
 				'model'        => $result['model'],
 				'session_id'   => isset( $result['session_id'] ) ? $result['session_id'] : '',
 				'cart_updated' => ! empty( $result['cart_updated'] ),
+				'products'     => ! empty( $result['products'] ) ? $result['products'] : [],
 			]
 		);
 	}
@@ -328,6 +363,7 @@ class AI_Ecommerce_Agent_API {
 					'session_id'   => $session_id,
 					'cart_updated' => $cart_updated,
 					'cart'         => $cart_updated ? self::get_current_cart_data() : null,
+					'products'     => ! empty( $result['products'] ) ? $result['products'] : [],
 				]
 			);
 		} finally {
@@ -614,5 +650,57 @@ class AI_Ecommerce_Agent_API {
 		}
 
 		return '0.0.0.0';
+	}
+
+	/**
+	 * Añade un producto al carrito directamente desde la interfaz del chat (tarjetas de productos)
+	 * validando existencia, stock y variaciones en el servidor sin consumir tokens de OpenAI.
+	 *
+	 * @param WP_REST_Request $request Petición REST.
+	 * @return WP_REST_Response
+	 */
+	public static function public_add_to_cart( WP_REST_Request $request ) {
+		$product_id   = (int) $request->get_param( 'product_id' );
+		$quantity     = max( 1, (int) $request->get_param( 'quantity' ) );
+		$variation_id = (int) $request->get_param( 'variation_id' );
+		$raw_attrs    = $request->get_param( 'attributes' );
+		$attributes   = is_array( $raw_attrs ) ? $raw_attrs : [];
+
+		if ( ! class_exists( 'AI_Ecommerce_Agent_Woo' ) ) {
+			return rest_ensure_response(
+				[
+					'success' => false,
+					'codigo'  => 'woo_no_disponible',
+					'mensaje' => 'El sistema de comercio electrónico no está disponible actualmente.',
+				]
+			);
+		}
+
+		$result = AI_Ecommerce_Agent_Woo::añadir_al_carrito( $product_id, $quantity, $variation_id, $attributes );
+
+		if ( ! empty( $result['exito'] ) ) {
+			return rest_ensure_response(
+				[
+					'success'             => true,
+					'codigo'              => 'producto_anadido',
+					'mensaje'             => isset( $result['mensaje'] ) ? $result['mensaje'] : 'Producto añadido al carrito con éxito.',
+					'total_items_carrito' => isset( $result['total_items_carrito'] ) ? (int) $result['total_items_carrito'] : 0,
+					'subtotal_carrito'    => isset( $result['subtotal_carrito'] ) ? $result['subtotal_carrito'] : '',
+					'url_carrito'         => isset( $result['url_carrito'] ) ? $result['url_carrito'] : ( function_exists( 'wc_get_cart_url' ) ? wc_get_cart_url() : '' ),
+					'url_checkout'        => isset( $result['url_checkout'] ) ? $result['url_checkout'] : ( function_exists( 'wc_get_checkout_url' ) ? wc_get_checkout_url() : '' ),
+					'url_producto'        => isset( $result['url_producto'] ) ? $result['url_producto'] : '',
+					'cart'                => self::get_current_cart_data(),
+				]
+			);
+		}
+
+		return rest_ensure_response(
+			[
+				'success'      => false,
+				'codigo'       => isset( $result['codigo'] ) ? $result['codigo'] : 'error_anadir_carrito',
+				'mensaje'      => isset( $result['mensaje'] ) ? $result['mensaje'] : 'No se pudo añadir el producto al carrito.',
+				'url_producto' => isset( $result['url_producto'] ) ? $result['url_producto'] : '',
+			]
+		);
 	}
 }
