@@ -217,7 +217,7 @@ class AI_Ecommerce_Agent_Woo {
 		}
 
 		// 3. Coincidencia por búsqueda parcial en términos de la taxonomía.
-		if ( ! $category instanceof WP_Term ) {
+		if ( ! $category instanceof WP_Term && function_exists( 'get_terms' ) ) {
 			$found_terms = get_terms( [
 				'taxonomy'   => 'product_cat',
 				'search'     => $term,
@@ -494,9 +494,10 @@ class AI_Ecommerce_Agent_Woo {
 
 		if ( ! $target_product->is_in_stock() ) {
 			return [
-				'exito'   => false,
-				'codigo'  => 'producto_agotado',
-				'mensaje' => sprintf( 'El producto "%s" está agotado actualmente y no se puede añadir al carrito.', $target_product->get_name() ),
+				'exito'        => false,
+				'codigo'       => 'producto_agotado',
+				'mensaje'      => sprintf( 'El producto "%s" está agotado actualmente y no se puede añadir al carrito.', $target_product->get_name() ),
+				'url_producto' => (string) get_permalink( $product->get_id() ),
 			];
 		}
 
@@ -603,6 +604,8 @@ class AI_Ecommerce_Agent_Woo {
 			'total_items_carrito' => (int) WC()->cart->get_cart_contents_count(),
 			'subtotal_carrito'    => $cart_subtotal,
 			'url_carrito'         => function_exists( 'wc_get_cart_url' ) ? (string) wc_get_cart_url() : '',
+			'url_checkout'        => function_exists( 'wc_get_checkout_url' ) ? (string) wc_get_checkout_url() : '',
+			'url_producto'        => (string) get_permalink( $product->get_id() ),
 		];
 	}
 
@@ -616,20 +619,22 @@ class AI_Ecommerce_Agent_Woo {
 			return false;
 		}
 
-		if ( null === WC()->cart && function_exists( 'wc_load_cart' ) ) {
+		if ( ( ! isset( WC()->cart ) || null === WC()->cart ) && function_exists( 'wc_load_cart' ) ) {
 			wc_load_cart();
 		}
 
-		if ( null === WC()->session && method_exists( WC(), 'initialize_session' ) ) {
+		if ( property_exists( WC(), 'session' ) && null === WC()->session && method_exists( WC(), 'initialize_session' ) ) {
 			WC()->initialize_session();
 		}
 
-		if ( null === WC()->cart && method_exists( WC(), 'initialize_cart' ) ) {
+		if ( property_exists( WC(), 'cart' ) && null === WC()->cart && method_exists( WC(), 'initialize_cart' ) ) {
 			WC()->initialize_cart();
 		}
 
-		if ( WC()->cart instanceof WC_Cart ) {
-			WC()->cart->get_cart();
+		if ( isset( WC()->cart ) && WC()->cart instanceof WC_Cart ) {
+			if ( method_exists( WC()->cart, 'get_cart' ) ) {
+				WC()->cart->get_cart();
+			}
 			return true;
 		}
 
@@ -680,7 +685,7 @@ class AI_Ecommerce_Agent_Woo {
 			return 0;
 		}
 
-		$managed_id = (int) $target->get_stock_managed_by_id();
+		$managed_id = method_exists( $target, 'get_stock_managed_by_id' ) ? (int) $target->get_stock_managed_by_id() : (int) $target->get_id();
 		$count      = 0;
 
 		foreach ( WC()->cart->get_cart() as $item ) {
@@ -689,7 +694,8 @@ class AI_Ecommerce_Agent_Woo {
 			$item_qty     = isset( $item['quantity'] ) ? (int) $item['quantity'] : 0;
 
 			if ( isset( $item['data'] ) && $item['data'] instanceof WC_Product ) {
-				if ( (int) $item['data']->get_stock_managed_by_id() === $managed_id ) {
+				$item_managed_id = method_exists( $item['data'], 'get_stock_managed_by_id' ) ? (int) $item['data']->get_stock_managed_by_id() : (int) $item['data']->get_id();
+				if ( $item_managed_id === $managed_id ) {
 					$count += $item_qty;
 					continue;
 				}
@@ -716,7 +722,7 @@ class AI_Ecommerce_Agent_Woo {
 		$info            = [];
 
 		foreach ( $variation_attrs as $attr_name => $options ) {
-			$label   = wc_attribute_label( $attr_name, $product );
+			$label   = function_exists( 'wc_attribute_label' ) ? wc_attribute_label( $attr_name, $product ) : ucfirst( str_replace( [ 'pa_', '-' ], [ '', ' ' ], $attr_name ) );
 			$choices = [];
 
 			if ( is_array( $options ) ) {
@@ -759,12 +765,12 @@ class AI_Ecommerce_Agent_Woo {
 				continue;
 			}
 
-			$raw_attrs      = $variation->get_variation_attributes();
+			$raw_attrs      = method_exists( $variation, 'get_variation_attributes' ) ? $variation->get_variation_attributes() : ( method_exists( $variation, 'get_attributes' ) ? $variation->get_attributes() : [] );
 			$readable_attrs = [];
 
 			foreach ( $raw_attrs as $attr_key => $attr_val ) {
 				$taxonomy = preg_replace( '/^attribute_/', '', (string) $attr_key );
-				$label    = wc_attribute_label( $taxonomy, $product );
+				$label    = function_exists( 'wc_attribute_label' ) ? wc_attribute_label( $taxonomy, $product ) : ucfirst( str_replace( [ 'pa_', '-' ], [ '', ' ' ], $taxonomy ) );
 				$val_str  = (string) $attr_val;
 
 				if ( '' !== $val_str && taxonomy_exists( $taxonomy ) ) {
@@ -877,7 +883,7 @@ class AI_Ecommerce_Agent_Woo {
 				];
 			}
 
-			if ( 'publish' !== $variation->get_status() || ! $variation->variation_is_visible() ) {
+			if ( 'publish' !== $variation->get_status() || ( method_exists( $variation, 'variation_is_visible' ) && ! $variation->variation_is_visible() ) ) {
 				return [
 					'ok'    => false,
 					'error' => [
@@ -940,7 +946,7 @@ class AI_Ecommerce_Agent_Woo {
 		// Caso B: No se indicó variation_id pero sí todos los atributos obligatorios; buscar la variación hija que coincida.
 		foreach ( $product->get_children() as $child_id ) {
 			$variation = wc_get_product( $child_id );
-			if ( ! $variation instanceof WC_Product_Variation || 'publish' !== $variation->get_status() || ! $variation->variation_is_visible() ) {
+			if ( ! $variation instanceof WC_Product_Variation || 'publish' !== $variation->get_status() || ( method_exists( $variation, 'variation_is_visible' ) && ! $variation->variation_is_visible() ) ) {
 				continue;
 			}
 

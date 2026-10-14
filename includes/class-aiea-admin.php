@@ -251,6 +251,9 @@ class AI_Ecommerce_Agent_Admin {
 		$raw_email      = isset( $input['email'] ) ? trim( (string) $input['email'] ) : '';
 		$clean['email'] = '' !== $raw_email ? sanitize_email( $raw_email ) : '';
 
+		$raw_claims            = isset( $input['claims_email'] ) ? trim( (string) $input['claims_email'] ) : '';
+		$clean['claims_email'] = ( '' !== $raw_claims && is_email( $raw_claims ) ) ? sanitize_email( $raw_claims ) : '';
+
 		$raw_web              = isset( $input['website_url'] ) ? trim( (string) $input['website_url'] ) : '';
 		$clean['website_url'] = '' !== $raw_web ? esc_url_raw( $raw_web ) : '';
 
@@ -999,6 +1002,13 @@ class AI_Ecommerce_Agent_Admin {
 					<th scope="row"><label for="aiea-biz-email">Correo electrónico de contacto</label></th>
 					<td>
 						<input type="email" id="aiea-biz-email" class="regular-text" name="<?php echo esc_attr( $opt ); ?>[email]" value="<?php echo esc_attr( $business['email'] ); ?>" placeholder="contacto@tutienda.com">
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="aiea-biz-claims-email">Correo oficial de reclamaciones</label></th>
+					<td>
+						<input type="email" id="aiea-biz-claims-email" class="regular-text" name="<?php echo esc_attr( $opt ); ?>[claims_email]" value="<?php echo esc_attr( $business['claims_email'] ?? '' ); ?>" placeholder="reclamaciones@tutienda.com">
+						<p class="description">Canal oficial al que el asistente remitirá quejas, reclamos o problemas con pedidos. Si no se especifica, no se inventará ninguna dirección y se derivará a los canales generales de soporte.</p>
 					</td>
 				</tr>
 				<tr>

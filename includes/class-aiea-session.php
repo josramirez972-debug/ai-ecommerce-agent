@@ -188,6 +188,41 @@ class AI_Ecommerce_Agent_Session {
 	}
 
 	/**
+	 * Comprueba si la sesión se encuentra en estado de reclamo derivado.
+	 *
+	 * @param string $session_id Identificador o token de sesión.
+	 * @return bool True si la sesión tiene un reclamo derivado activo.
+	 */
+	public static function is_claim_derived( string $session_id ): bool {
+		$storage_key = self::get_storage_key( $session_id );
+		if ( '' === $storage_key ) {
+			return false;
+		}
+
+		return (bool) get_transient( 'aiea_clm_' . $storage_key );
+	}
+
+	/**
+	 * Actualiza el estado de derivación de reclamo de la sesión.
+	 *
+	 * @param string $session_id Identificador o token de sesión.
+	 * @param bool   $state      True para marcar reclamo derivado, false para reanudar comercial.
+	 * @return void
+	 */
+	public static function set_claim_derived( string $session_id, bool $state ): void {
+		$storage_key = self::get_storage_key( $session_id );
+		if ( '' === $storage_key ) {
+			return;
+		}
+
+		if ( $state ) {
+			set_transient( 'aiea_clm_' . $storage_key, 1, self::SESSION_TTL );
+		} else {
+			delete_transient( 'aiea_clm_' . $storage_key );
+		}
+	}
+
+	/**
 	 * Extrae la clave de almacenamiento para Transients a partir del identificador o token firmado.
 	 *
 	 * @param string $session_id Identificador o token de sesión.

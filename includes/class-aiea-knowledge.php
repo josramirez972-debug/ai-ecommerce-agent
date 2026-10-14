@@ -44,11 +44,29 @@ class AI_Ecommerce_Agent_Knowledge {
 			'city'              => '',
 			'address'           => '',
 			'email'             => '',
+			'claims_email'      => '',
 			'phone'             => '',
 			'whatsapp'          => '',
 			'website_url'       => '',
 			'contact_url'       => '',
 		];
+	}
+
+	/**
+	 * Obtiene el correo oficial configurado específicamente para reclamos y quejas.
+	 * Valida que tenga formato de correo electrónico y no inventa ni asume correos sin confirmar.
+	 *
+	 * @return string Dirección de correo válida o cadena vacía si no está configurada.
+	 */
+	public static function get_claims_email(): string {
+		$biz   = self::get_business_info();
+		$email = isset( $biz['claims_email'] ) ? trim( (string) $biz['claims_email'] ) : '';
+
+		if ( '' !== $email && is_email( $email ) ) {
+			return sanitize_email( $email );
+		}
+
+		return '';
 	}
 
 	/**
@@ -545,6 +563,7 @@ class AI_Ecommerce_Agent_Knowledge {
 				'whatsapp'                   => $whatsapp,
 				'telefono'                   => $phone,
 				'correo'                     => $email,
+				'correo_reclamaciones'       => self::get_claims_email(),
 				'url_contacto'               => $contact_url,
 				'direccion_ubicacion'        => $address,
 				'indicaciones_asesor_humano' => $advisor_notes,

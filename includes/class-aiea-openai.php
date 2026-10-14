@@ -79,6 +79,43 @@ class AI_Ecommerce_Agent_OpenAI {
 			$session_id = AI_Ecommerce_Agent_Session::generate_id();
 		}
 
+		// --- 3.1 Control de estado conversacional y derivación estricta de reclamos (Fase 2) ---
+		$is_claim_active = AI_Ecommerce_Agent_Session::is_claim_derived( $session_id );
+		$is_new_claim    = self::is_claim_intent( $message );
+
+		if ( $is_new_claim ) {
+			// Derivación inmediata de reclamo (prioridad absoluta incluso en mensajes mixtos)
+			AI_Ecommerce_Agent_Session::set_claim_derived( $session_id, true );
+			$reply = self::build_claim_derivation_response();
+			AI_Ecommerce_Agent_Session::save_turn( $session_id, $message, $reply );
+
+			return [
+				'message'      => $reply,
+				'model'        => 'rule-claim-guard',
+				'session_id'   => $session_id,
+				'cart_updated' => false,
+			];
+		}
+
+		if ( $is_claim_active ) {
+			if ( self::is_commercial_intent( $message ) ) {
+				// El cliente cambia claramente a intención comercial: reanudar ventas
+				AI_Ecommerce_Agent_Session::set_claim_derived( $session_id, false );
+			} else {
+				// El cliente continúa insistiendo en el reclamo o enviando datos personales
+				AI_Ecommerce_Agent_Session::set_claim_derived( $session_id, true );
+				$reply = self::build_claim_continuation_response();
+				AI_Ecommerce_Agent_Session::save_turn( $session_id, $message, $reply );
+
+				return [
+					'message'      => $reply,
+					'model'        => 'rule-claim-guard',
+					'session_id'   => $session_id,
+					'cart_updated' => false,
+				];
+			}
+		}
+
 		$history       = AI_Ecommerce_Agent_Session::get_history( $session_id );
 		$current_input = AI_Ecommerce_Agent_Session::to_responses_api_input( $history );
 		$current_input[] = [
@@ -228,22 +265,46 @@ class AI_Ecommerce_Agent_OpenAI {
 			}
 		}
 
-		$instructions = "Eres {$agent_name}, asesor comercial{$store_ctx}. Responde siempre en español de forma natural, clara, breve, directa y útil.\n\n"
-			. "REGLAS OBLIGATORIAS DE PRECISIÓN COMERCIAL Y FUENTES DE CONOCIMIENTO:\n"
-			. "1. PRIORIDAD DE FUENTES REALES Y PROHIBICIÓN DE INFERENCIAS:\n"
+		$claims_email   = class_exists( 'AI_Ecommerce_Agent_Knowledge' ) ? AI_Ecommerce_Agent_Knowledge::get_claims_email() : '';
+		$claims_channel = '' !== $claims_email ? "al correo oficial de reclamaciones: {$claims_email}" : 'a los canales oficiales de soporte y atención al cliente de la tienda';
+
+		$instructions = "Eres {$agent_name}, asesor comercial{$store_ctx}. Responde siempre en español de forma natural, cercana, profesional, breve, directa y útil.\n\n"
+			. "DIRECTRICES CONVERSACIONALES Y DE EXPERIENCIA DE COMPRA:\n"
+			. "1. TONO NATURAL Y FLUIDEZ CONVERSACIONAL:\n"
+			. "   - Habla con cercanía, respeto y profesionalismo en español natural.\n"
+			. "   - NO REPITAS SALUDOS: Si en los turnos anteriores ya saludaste al cliente o la conversación ya está en curso, ve directo a responder sin decir '¡Hola!', '¡Buenas!' ni frases introductorias redundantes.\n"
+			. "   - NO TERMINES CON PREGUNTAS FORZADAS: No finalices cada mensaje con una pregunta innecesaria ('¿Hay algo más en lo que te pueda ayudar?', '¿Te gustaría saber algo más?'). Pregunta ÚNICAMENTE cuando falte información indispensable para avanzar (ej. selección de sabor, presentación o destino de envío).\n"
+			. "   - RESOLUCIÓN DE REFERENCIAS CONTEXTUALES: Si el cliente pregunta por 'la primera', 'esa proteína', 'la segunda opción', '¿cuánto cuesta?', '¿tienen en stock?' o 'añádela', revisa el historial para identificar el producto con precisión y consulta buscar_productos con su nombre si necesitas verificar existencias o ID.\n"
+			. "   - Respuestas concisas, bien adaptadas a la intención del cliente y orientadas hacia una acción útil (conocer el producto, resolver dudas o avanzar al checkout) sin insistencia.\n"
+			. "2. PRESENTACIÓN DE PRODUCTOS Y ENLACES REALES (buscar_productos):\n"
+			. "   - Ante cualquier consulta sobre productos, ejecuta SIEMPRE buscar_productos en WooCommerce para consultar datos reales.\n"
+			. "   - Al presentar un producto encontrado, incluye SIEMPRE un enlace funcional a su ficha en formato Markdown utilizando estrictamente la URL provista en el campo 'url': [Nombre Real del Producto](url_real). NUNCA inventes URLs ni supongas slugs.\n"
+			. "   - Presenta el nombre, precio formateado, disponibilidad y presentación cuando estén disponibles.\n"
+			. "   - Si el producto está AGOTADO ('disponible': false o sin stock): indícalo explícitamente y aclara que no se puede comprar en este momento. PROHIBIDO describirlo como disponible. Comparte el enlace a su ficha y ofrece alternativas en stock si existen en la tienda.\n"
+			. "   - Si el producto no existe en el catálogo, reconoce abiertamente que no lo encontraste sin inventar productos ficticios.\n"
+			. "   - Si es un producto 'variable', informa los atributos disponibles (ej. sabores, tamaños) y precios de las variaciones.\n"
+			. "3. CARRITO, CHECKOUT Y COMPRA ASISTIDA (anadir_al_carrito):\n"
+			. "   - Si el cliente solicita añadir un producto al carrito ('añádelo', 'quiero comprarlo', 'lo llevo'):\n"
+			. "     a) Verifica que el producto sea comprable y tenga stock.\n"
+			. "     b) Si es variable y faltan atributos obligatorios, pregunta amablemente qué opción prefiere antes de ejecutar la herramienta.\n"
+			. "     c) Ejecuta anadir_al_carrito con el product_id numérico y la variación correspondiente.\n"
+			. "     d) Confirma que el producto se añadió ÚNICAMENTE si 'exito' es true.\n"
+			. "     e) Facilita siempre enlaces funcionales al carrito y al checkout utilizando las URLs devueltas por la herramienta: [Ver Carrito](url_carrito) y [Finalizar Compra](url_checkout).\n"
+			. "     f) Si la operación falla o el producto está agotado, explícalo con claridad, no afirmes que se añadió, ofrece su enlace de ficha y presenta alternativas si las hay.\n"
+			. "     g) Nunca intentes completar la compra automáticamente ni pidas datos de pago; el cliente debe finalizar su compra de forma segura en el checkout oficial de WooCommerce.\n"
+			. "4. DERIVACIÓN ESTRICTA DE RECLAMOS, QUEJAS Y REEMBOLSOS:\n"
+			. "   - Este chat es EXCLUSIVAMENTE un canal de orientación comercial y ventas. NO es un canal de postventa ni de resolución de reclamos.\n"
+			. "   - Ante cualquier reclamo, queja, inconformidad, pedido dañado, no entregado, cobro doble o solicitud de reembolso, responde con empatía y brevedad remitiendo {$claims_channel}.\n"
+			. "   - PROHIBIDO solicitar datos personales sensibles (cédula, documentos, teléfono personal o datos de tarjetas de crédito) para 'gestionar el reclamo por chat'.\n"
+			. "   - PROHIBIDO prometer reembolsos, devoluciones de dinero o cancelaciones desde el chat.\n"
+			. "   - PROHIBIDO ofrecer productos o descuentos como compensación a un reclamo.\n"
+			. "   - Si el cliente cambia a una consulta comercial ('Está bien, muéstrame las proteínas'), reanuda la atención de ventas con naturalidad sin volver a tocar el reclamo.\n"
+			. "5. PRIORIDAD DE FUENTES REALES Y PROHIBICIÓN DE INFERENCIAS:\n"
 			. "   - Prioriza siempre las fuentes reales verificadas sobre suposiciones. Nunca conviertas inferencias en hechos ni inventes políticas, precios, existencias, tiempos de entrega, costos de envío, cobertura, garantías, devoluciones, reembolsos, cancelaciones, horarios o métodos de pago.\n"
 			. "   - Distingue siempre entre 'información no disponible o no especificada' y 'no permitido o excluido'.\n"
 			. "   - No menciones restricciones hipotéticas sin evidencia en las herramientas.\n"
 			. "   - Recomienda contactar con la tienda ÚNICAMENTE cuando falte información confirmada o exista contradicción entre fuentes.\n"
-			. "2. CATÁLOGO Y PRODUCTOS (buscar_productos):\n"
-			. "   - Ante preguntas amplias ('¿Qué venden?'), NO vuelques todo el catálogo; resume brevemente qué tipo de productos ofrece la tienda y haz una pregunta corta para identificar qué busca el cliente.\n"
-			. "   - Ante consultas de un producto, ingrediente, categoría, precio o stock, ejecuta siempre buscar_productos para consultar datos reales de WooCommerce. La memoria conversacional nunca sustituye precios ni existencias actuales.\n"
-			. "   - En preguntas de seguimiento ('¿Cuánto cuesta?', '¿En qué presentación viene?', 'Añádelo al carrito'), identifica el producto en el historial y consulta buscar_productos si necesitas verificar su ID numérico o sus variaciones.\n"
-			. "3. CARRITO Y PRODUCTOS VARIABLES (anadir_al_carrito):\n"
-			. "   - No modifiques el carrito sin solicitud expresa del cliente.\n"
-			. "   - Si el producto es 'variable' y el cliente no ha elegido todos los atributos obligatorios, NO ejecutes anadir_al_carrito ni elijas una variación al azar: pregúntale qué opción prefiere mostrando las opciones reales.\n"
-			. "   - Solo confirma que el producto se añadió al carrito cuando anadir_al_carrito devuelva 'exito': true.\n"
-			. "4. COBERTURA GEOGRÁFICA Y ENVÍOS (consultar_cobertura_envios y consultar_politicas):\n"
+			. "6. COBERTURA GEOGRÁFICA Y ENVÍOS (consultar_cobertura_envios y consultar_politicas):\n"
 			. "   - Ante cualquier consulta sobre envíos, ciudades atendidas, cobertura nacional, costos o tiempos de entrega, ejecuta siempre consultar_cobertura_envios (pasando la ubicación consultada).\n"
 			. "   - No deduzcas cobertura nacional solo por el modo 'nacional' si la lista de ciudades o regiones está limitada.\n"
 			. "   - Distingue estrictamente los 5 estados de evaluacion_ubicacion_consultada:\n"
@@ -253,19 +314,19 @@ class AI_Ecommerce_Agent_OpenAI {
 			. "     d) 'fuente_cobertura_no_disponible': indica que la fuente de cobertura no está disponible y sugiere contactar con la tienda.\n"
 			. "     e) 'fuentes_contradictorias': informa con claridad que existe una discrepancia entre las fuentes configuradas para esa ciudad y recomienda confirmarlo con la tienda.\n"
 			. "   - COSTOS Y TIEMPOS DE ENVÍO: Si costos_envio_confirmados es false o tiempos_entrega_confirmados es false por contradicción con la política oficial, PROHIBIDO presentar valores no respaldados o contradictorios (como '12.000 COP' o '1 a 3 días hábiles') como hechos confirmados. Explica que el costo exacto varía según el destino/pedido y se muestra en el checkout antes del pago, y que el plazo definitivo de entrega depende de la confirmación logística en el checkout (con 24 h de preparación de referencia según la política oficial).\n"
-			. "5. POLÍTICAS OFICIALES (consultar_politicas):\n"
+			. "7. POLÍTICAS OFICIALES (consultar_politicas):\n"
 			. "   - Ejecuta siempre consultar_politicas con el tipo exacto: 'devoluciones', 'reembolsos', 'garantia', 'cancelaciones', 'terminos', 'privacidad', 'envios' o 'pagos'.\n"
 			. "   - NUNCA uses una página equivocada para responder otra política (p. ej. nunca respondas sobre garantías con la página de envíos, ni sobre cancelaciones con la de privacidad, ni sobre reembolsos con la de garantías).\n"
 			. "   - No presentes textos pendientes de validación ni marcadores en borrador como políticas confirmadas.\n"
 			. "   - Si consultar_politicas devuelve verificada=false (como cuando una política no existe o su página asignada no corresponde al tema), indícalo con claridad y sin inventar condiciones.\n"
-			. "6. PREGUNTAS FRECUENTES (consultar_faq):\n"
+			. "8. PREGUNTAS FRECUENTES (consultar_faq):\n"
 			. "   - Las FAQ activas apoyan la atención, pero NUNCA anulan las restricciones explícitas de las políticas oficiales. Si una FAQ aparece marcada con contradice_politica_oficial_envios=true, no presentes su plazo como confirmado.\n"
-			. "7. INFORMACIÓN DEL NEGOCIO, HORARIOS Y CONTACTO (consultar_informacion_negocio y consultar_horarios_contacto):\n"
+			. "9. INFORMACIÓN DEL NEGOCIO, HORARIOS Y CONTACTO (consultar_informacion_negocio y consultar_horarios_contacto):\n"
 			. "   - Ejecuta consultar_informacion_negocio y/o consultar_horarios_contacto para datos de la empresa, horarios o contacto humano. Si puede_confirmar_estado_actual es false, no afirmes si está abierto o cerrado ahora mismo.\n"
-			. "8. MÉTODOS DE PAGO REALES (consultar_metodos_pago):\n"
+			. "10. MÉTODOS DE PAGO REALES (consultar_metodos_pago):\n"
 			. "   - Ejecuta siempre consultar_metodos_pago. Muestra únicamente pasarelas con enabled='yes' presentes en metodos_disponibles. Si metodos_disponibles está vacío, no confirmes métodos informativos (como PSE, Nequi o Daviplata) e indica que los métodos disponibles se muestran al finalizar la compra en el checkout.\n"
-			. "9. SEGURIDAD Y PRIVACIDAD:\n"
-			. "   - Nunca expongas claves ni configuraciones sensibles, y nunca solicites contraseñas ni códigos bancarios.";
+			. "11. SEGURIDAD Y PRIVACIDAD:\n"
+			. "   - Nunca expongas claves ni configuraciones sensibles, y nunca solicites contraseñas, documentos de identidad ni códigos bancarios.";
 
 		if ( ! $woo_active ) {
 			$instructions .= "\n\nAVISO: En esta prueba no tienes acceso directo al catálogo ni a las pasarelas de WooCommerce. Si te preguntan por productos o métodos de pago activos, indícalo con amabilidad y no inventes datos.";
@@ -684,5 +745,119 @@ class AI_Ecommerce_Agent_OpenAI {
 		}
 
 		return new WP_Error( 'aiea_openai_error', $msg, [ 'status' => 502 ] );
+	}
+
+	/**
+	 * Detecta si el mensaje expresa una intención clara de reclamo, queja, cobro indebido o incidencia posventa.
+	 *
+	 * @param string $message Mensaje del usuario.
+	 * @return bool True si corresponde a intención de reclamo.
+	 */
+	public static function is_claim_intent( string $message ): bool {
+		$clean      = mb_strtolower( trim( $message ), 'UTF-8' );
+		$normalized = strtr(
+			$clean,
+			[
+				'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u', 'ñ' => 'n',
+			]
+		);
+
+		$patterns = [
+			'/\b(reclamo|reclamacion|queja|quejarme)\b/u',
+			'/\b(lleg[oó]\s+(da[ñn]ad[oa]|rot[oa]|averiad[oa]|defectuos[oa]|incomplet[oa]|en\s+mal\s+estado|vencid[oa]|abiert[oa]))/u',
+			'/\b(producto|pedido|paquete)\s+(da[ñn]ad[oa]|rot[oa]|averiad[oa]|defectuos[oa]|incomplet[oa]|en\s+mal\s+estado|vencid[oa]|abiert[oa])/u',
+			'/\b(nunca\s+recib[ií]\s+mi\s+pedido|no\s+(me\s+)?(ha\s+)?llegad[oa]\s+(el|mi)\s+(pedido|paquete|compra))/u',
+			'/\b(no\s+llega\s+(el|mi)\s+(pedido|paquete|compra)|(el|mi)\s+(pedido|paquete|compra)\s+no\s+(ha\s+)?llega(d[oa])?)/u',
+			'/\b(cobraron\s+dos\s+veces|doble\s+cobro|cobro\s+duplicado|cobro\s+doble|cobro\s+indebido|me\s+descontaron\s+dos\s+veces)\b/u',
+			'/\b(solicitar|pedir|quiero|exijo)\s+(un\s+)?reembolso\b/u',
+			'/\b(devoluci[oó]n\s+de\s+(mi\s+)?dinero|que\s+me\s+devuelvan\s+(el|mi)\s+dinero)\b/u',
+			'/\b(tengo\s+un\s+problema|inconformidad)\s+con\s+(mi|el)\s+(compra|pedido)\b/u',
+			'/\bcancelar\s+(un|el|mi)?\s*pedido\s+por\s+(un\s+)?problema\b/u',
+		];
+
+		foreach ( $patterns as $pattern ) {
+			if ( preg_match( $pattern, $normalized ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Detecta si el mensaje expresa una intención comercial clara para reanudar la atención de ventas.
+	 *
+	 * @param string $message Mensaje del usuario.
+	 * @return bool True si es intención comercial sin reclamo.
+	 */
+	public static function is_commercial_intent( string $message ): bool {
+		// Si incluye reclamo, priorizar siempre el reclamo:
+		if ( self::is_claim_intent( $message ) ) {
+			return false;
+		}
+
+		$clean      = mb_strtolower( trim( $message ), 'UTF-8' );
+		$normalized = strtr(
+			$clean,
+			[
+				'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u', 'ñ' => 'n',
+			]
+		);
+
+		$patterns = [
+			'/\b(muestrame|muestra|ver|mostrar|listar|tienen|que\s+tienen|que\s+hay|venden|catalogo|productos?)\b/u',
+			'/\b(proteina|creatina|aminoacido|colageno|vitamina|suplemento|hmb|whey|isolate|preentreno|omega)\b/u',
+			'/\b(cuanto\s+cuesta|precio|comprar|anadir|agregar|carrito|disponible|stock)\b/u',
+			'/\b(recomiendame|recomienda|busco|quiero\s+(ver|saber|comprar|consultar|adquirir|llevar))\b/u',
+			'/\b(esta\s+bien|bueno|ok|vale|listo),?\s+(muestrame|tienen|quiero|cuentame|que|como|vamos)\b/u',
+		];
+
+		foreach ( $patterns as $pattern ) {
+			if ( preg_match( $pattern, $normalized ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Construye la respuesta respetuosa y empática para derivar un reclamo al correo oficial configurado.
+	 *
+	 * @return string
+	 */
+	public static function build_claim_derivation_response(): string {
+		$claims_email = class_exists( 'AI_Ecommerce_Agent_Knowledge' )
+			? AI_Ecommerce_Agent_Knowledge::get_claims_email()
+			: '';
+
+		if ( '' !== $claims_email ) {
+			return sprintf(
+				'Lamento que hayas tenido este problema. Para que tu caso pueda ser revisado por el equipo responsable, debes escribir a nuestro correo oficial de reclamaciones: %s. Allí podrán indicarte cómo proceder.',
+				$claims_email
+			);
+		}
+
+		return 'Lamento que hayas tenido este problema. Para que tu caso pueda ser revisado por el equipo responsable, por favor comunícate a través de nuestros canales oficiales de atención al cliente. Este chat es exclusivamente un canal de orientación comercial y no está habilitado para gestionar reclamos ni incidencias de compras.';
+	}
+
+	/**
+	 * Construye la respuesta cuando un cliente insiste en el reclamo por chat o envía datos personales.
+	 *
+	 * @return string
+	 */
+	public static function build_claim_continuation_response(): string {
+		$claims_email = class_exists( 'AI_Ecommerce_Agent_Knowledge' )
+			? AI_Ecommerce_Agent_Knowledge::get_claims_email()
+			: '';
+
+		if ( '' !== $claims_email ) {
+			return sprintf(
+				'Comprendo tu situación, pero este asistente es únicamente un canal de orientación comercial y ventas; no podemos gestionar reclamos, prometer reembolsos ni recibir datos personales o de pago por este medio. Por favor, remite los detalles de tu caso a nuestro correo oficial de reclamaciones: %s para que el equipo responsable te asista.',
+				$claims_email
+			);
+		}
+
+		return 'Comprendo tu situación, pero este asistente es únicamente un canal de orientación comercial y ventas; no podemos gestionar reclamos, prometer reembolsos ni recibir datos personales o de pago por este medio. Por favor, comunícate directamente por nuestros canales oficiales de atención al cliente para que el equipo correspondiente te asista.';
 	}
 }

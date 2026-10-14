@@ -364,9 +364,11 @@ class AI_Ecommerce_Agent_API {
 			: '';
 
 		return [
-			'count'     => $count,
-			'subtotal'  => $subtotal,
-			'cart_hash' => $cart_hash,
+			'count'        => $count,
+			'subtotal'     => $subtotal,
+			'cart_hash'    => $cart_hash,
+			'url_carrito'  => function_exists( 'wc_get_cart_url' ) ? (string) wc_get_cart_url() : '',
+			'url_checkout' => function_exists( 'wc_get_checkout_url' ) ? (string) wc_get_checkout_url() : '',
 		];
 	}
 
