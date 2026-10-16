@@ -30,12 +30,40 @@ class AI_Ecommerce_Agent_Woo {
 	private static array $last_search_results = [];
 
 	/**
+	 * Último ID de producto relevante consultado o presentado.
+	 *
+	 * @var int
+	 */
+	private static int $last_product_id = 0;
+
+	/**
 	 * Devuelve los últimos productos normalizados encontrados.
 	 *
 	 * @return array[]
 	 */
 	public static function get_last_search_results(): array {
 		return self::$last_search_results;
+	}
+
+	/**
+	 * Devuelve el último ID de producto identificado.
+	 *
+	 * @return int
+	 */
+	public static function get_last_product_id(): int {
+		return self::$last_product_id;
+	}
+
+	/**
+	 * Fija manualmente el último ID de producto identificado.
+	 *
+	 * @param int $id ID de producto.
+	 * @return void
+	 */
+	public static function set_last_product_id( int $id ): void {
+		if ( $id > 0 ) {
+			self::$last_product_id = $id;
+		}
 	}
 
 	/**
@@ -90,6 +118,9 @@ class AI_Ecommerce_Agent_Woo {
 			$extracted  = self::extract_query_results( $raw_result, $limit );
 			$normalized = self::normalize_products( $extracted['products'] );
 			self::$last_search_results = $normalized;
+			if ( ! empty( $normalized ) && isset( $normalized[0]['id'] ) && (int) $normalized[0]['id'] > 0 ) {
+				self::$last_product_id = (int) $normalized[0]['id'];
+			}
 
 			return [
 				'total'     => $extracted['total'],
@@ -121,6 +152,9 @@ class AI_Ecommerce_Agent_Woo {
 
 		$normalized = self::normalize_products( $extracted['products'] );
 		self::$last_search_results = $normalized;
+		if ( ! empty( $normalized ) && isset( $normalized[0]['id'] ) && (int) $normalized[0]['id'] > 0 ) {
+			self::$last_product_id = (int) $normalized[0]['id'];
+		}
 
 		return [
 			'total'     => $extracted['total'],
@@ -213,9 +247,9 @@ class AI_Ecommerce_Agent_Woo {
 		}
 
 		// Fallback controlado con palabras clave específicas relevantes (no genéricas)
-		$generic_skip = [ 'polvo', 'capsulas', 'tabletas', 'suplemento', 'suplementos', 'sabor', '300', '500', '1000', '60', 'g', 'gr', 'mg', 'lb', 'ml', 'sobres' ];
+		$generic_skip = [ 'producto', 'productos', 'articulo', 'articulos', 'item', 'items', 'polvo', 'capsulas', 'tabletas', 'suplemento', 'suplementos', 'sabor', '300', '500', '1000', '60', 'g', 'gr', 'mg', 'lb', 'ml', 'sobres' ];
 		$specific_keywords = array_values( array_filter( $filtered_words, function( $w ) use ( $generic_skip ) {
-			return strlen( $w ) >= 4 && ! in_array( $w, $generic_skip, true );
+			return strlen( $w ) >= 3 && ! in_array( $w, $generic_skip, true );
 		} ) );
 
 		if ( count( $specific_keywords ) > 0 ) {
@@ -269,6 +303,15 @@ class AI_Ecommerce_Agent_Woo {
 		}
 
 		$generic_phrases = [
+			'producto',
+			'productos',
+			'el producto',
+			'este producto',
+			'un producto',
+			'articulo',
+			'articulos',
+			'el articulo',
+			'este articulo',
 			'todos',
 			'todo',
 			'todos los productos',
@@ -570,7 +613,11 @@ class AI_Ecommerce_Agent_Woo {
 		}
 
 		// 3. Validar y resolver el producto en WooCommerce.
-		if ( empty( $product_id ) || ( is_numeric( $product_id ) && (int) $product_id <= 0 ) ) {
+		$product      = null;
+		$variation_id = is_numeric( $variation_id ) && (int) $variation_id > 0 ? (int) $variation_id : 0;
+
+		// 2.5 Rechazar explícitamente identificadores numéricos inválidos (0 o negativos)
+		if ( ( is_int( $product_id ) || ( is_numeric( $product_id ) && ! is_string( $product_id ) ) || ( is_string( $product_id ) && ctype_digit( trim( $product_id ) ) ) ) && (int) $product_id <= 0 ) {
 			return [
 				'exito'   => false,
 				'codigo'  => 'producto_invalido',
@@ -578,38 +625,89 @@ class AI_Ecommerce_Agent_Woo {
 			];
 		}
 
-		$product      = null;
-		$variation_id = is_numeric( $variation_id ) && (int) $variation_id > 0 ? (int) $variation_id : 0;
+		// 3.0 Resolución de referencias anafóricas o identificadores textuales genéricos con el último producto consultado
+		$is_anaphoric = empty( $product_id )
+			|| ( is_string( $product_id ) && ( self::is_generic_query( (string) $product_id ) || in_array( strtolower( trim( (string) $product_id ) ), [ 'el producto', 'este producto', 'lo', 'la', 'este', 'ese', 'aquel' ], true ) ) );
 
-		if ( is_numeric( $product_id ) && (int) $product_id > 0 ) {
-			$product = wc_get_product( (int) $product_id );
-		} elseif ( is_string( $product_id ) && '' !== trim( $product_id ) ) {
-			$trimmed = trim( $product_id );
-			if ( is_numeric( $trimmed ) && (int) $trimmed > 0 ) {
-				$product = wc_get_product( (int) $trimmed );
-			} else {
-				// 3.1 Intentar resolver por slug/path
-				$page_by_path = get_page_by_path( sanitize_title( $trimmed ), OBJECT, 'product' );
-				if ( $page_by_path instanceof WP_Post ) {
-					$product = wc_get_product( (int) $page_by_path->ID );
-				}
-				// 3.2 Intentar resolver por SKU
-				if ( ! $product instanceof WC_Product && function_exists( 'wc_get_product_id_by_sku' ) ) {
-					$sku_id = wc_get_product_id_by_sku( $trimmed );
-					if ( $sku_id > 0 ) {
-						$product = wc_get_product( (int) $sku_id );
+		if ( $is_anaphoric ) {
+			if ( self::$last_product_id > 0 ) {
+				$product = wc_get_product( self::$last_product_id );
+			} elseif ( ! empty( self::$last_search_results ) && isset( self::$last_search_results[0]['id'] ) ) {
+				$product = wc_get_product( (int) self::$last_search_results[0]['id'] );
+			}
+
+			if ( ! $product instanceof WC_Product ) {
+				return [
+					'exito'   => false,
+					'codigo'  => 'producto_invalido',
+					'mensaje' => 'El identificador del producto no es válido.',
+				];
+			}
+		}
+
+		if ( ! $product instanceof WC_Product ) {
+			if ( is_numeric( $product_id ) && (int) $product_id > 0 ) {
+				$product = wc_get_product( (int) $product_id );
+			} elseif ( is_string( $product_id ) && '' !== trim( $product_id ) ) {
+				$trimmed = trim( $product_id );
+				if ( is_numeric( $trimmed ) && (int) $trimmed > 0 ) {
+					$product = wc_get_product( (int) $trimmed );
+				} else {
+					// 3.1 Intentar resolver por slug/path directo
+					$direct_slug = sanitize_title( $trimmed );
+					if ( '' !== $direct_slug ) {
+						$page_by_path = get_page_by_path( $direct_slug, OBJECT, 'product' );
+						if ( $page_by_path instanceof WP_Post ) {
+							$product = wc_get_product( (int) $page_by_path->ID );
+						}
 					}
-				}
-				// 3.3 Intentar resolver mediante coincidencia en título sin fallback general
-				if ( ! $product instanceof WC_Product && ! self::is_generic_query( $trimmed ) ) {
-					$matched_posts = get_posts( [
-						'post_type'      => 'product',
-						'post_status'    => 'publish',
-						's'              => $trimmed,
-						'posts_per_page' => 1,
-					] );
-					if ( ! empty( $matched_posts ) && isset( $matched_posts[0]->ID ) ) {
-						$product = wc_get_product( (int) $matched_posts[0]->ID );
+					// 3.2 Intentar resolver por SKU
+					if ( ! $product instanceof WC_Product && function_exists( 'wc_get_product_id_by_sku' ) ) {
+						$sku_id = wc_get_product_id_by_sku( $trimmed );
+						if ( $sku_id > 0 ) {
+							$product = wc_get_product( (int) $sku_id );
+						}
+					}
+					// 3.3 Intentar resolver mediante búsqueda tolerante en WooCommerce sin fallback general
+					if ( ! $product instanceof WC_Product && ! self::is_generic_query( $trimmed ) ) {
+						$candidates = self::generate_search_candidates( $trimmed );
+						foreach ( $candidates as $candidate_term ) {
+							if ( self::is_generic_query( $candidate_term ) ) {
+								continue;
+							}
+							$cand_slug = sanitize_title( $candidate_term );
+							if ( '' !== $cand_slug ) {
+								$p_by_slug = get_page_by_path( $cand_slug, OBJECT, 'product' );
+								if ( $p_by_slug instanceof WP_Post ) {
+									$found_by_slug = wc_get_product( (int) $p_by_slug->ID );
+									if ( $found_by_slug instanceof WC_Product && 'publish' === $found_by_slug->get_status() ) {
+										$product = $found_by_slug;
+										break;
+									}
+								}
+							}
+							$found_wc = wc_get_products( [
+								'status'   => 'publish',
+								's'        => $candidate_term,
+								'limit'    => 1,
+							] );
+							if ( ! empty( $found_wc ) && $found_wc[0] instanceof WC_Product ) {
+								$product = $found_wc[0];
+								break;
+							}
+						}
+
+						if ( ! $product instanceof WC_Product ) {
+							$matched_posts = get_posts( [
+								'post_type'      => 'product',
+								'post_status'    => 'publish',
+								's'              => $trimmed,
+								'posts_per_page' => 1,
+							] );
+							if ( ! empty( $matched_posts ) && isset( $matched_posts[0]->ID ) ) {
+								$product = wc_get_product( (int) $matched_posts[0]->ID );
+							}
+						}
 					}
 				}
 			}
@@ -622,6 +720,7 @@ class AI_Ecommerce_Agent_Woo {
 			$product      = wc_get_product( $product_id );
 		} elseif ( $product instanceof WC_Product ) {
 			$product_id = (int) $product->get_id();
+			self::$last_product_id = $product_id;
 		}
 
 		if ( ! $product instanceof WC_Product ) {
@@ -827,26 +926,36 @@ class AI_Ecommerce_Agent_Woo {
 			return false;
 		}
 
-		if ( ( ! isset( WC()->cart ) || null === WC()->cart ) && function_exists( 'wc_load_cart' ) ) {
-			wc_load_cart();
-		}
-
-		if ( property_exists( WC(), 'session' ) && null === WC()->session && method_exists( WC(), 'initialize_session' ) ) {
-			WC()->initialize_session();
-		}
-
-		if ( property_exists( WC(), 'session' ) && WC()->session && method_exists( WC()->session, 'has_session' ) && ! WC()->session->has_session() ) {
-			if ( method_exists( WC()->session, 'set_customer_session_cookie' ) ) {
-				WC()->session->set_customer_session_cookie( true );
+		// 1. Inicializar sesión de WooCommerce primero si no está disponible
+		if ( property_exists( WC(), 'session' ) && ( null === WC()->session || ! WC()->session instanceof WC_Session ) ) {
+			if ( method_exists( WC(), 'initialize_session' ) ) {
+				WC()->initialize_session();
+			} elseif ( class_exists( 'WC_Session_Handler' ) ) {
+				WC()->session = new WC_Session_Handler();
+				WC()->session->init();
 			}
 		}
 
+		if ( property_exists( WC(), 'session' ) && WC()->session && method_exists( WC(), 'session' ) ) {
+			if ( method_exists( WC()->session, 'has_session' ) && ! WC()->session->has_session() ) {
+				if ( method_exists( WC()->session, 'set_customer_session_cookie' ) ) {
+					WC()->session->set_customer_session_cookie( true );
+				}
+			}
+		}
+
+		// 2. Inicializar cliente de WooCommerce si no está disponible
 		if ( property_exists( WC(), 'customer' ) && ( null === WC()->customer || ! WC()->customer instanceof WC_Customer ) && class_exists( 'WC_Customer' ) ) {
 			WC()->customer = new WC_Customer( get_current_user_id(), true );
 		}
 
-		if ( property_exists( WC(), 'cart' ) && null === WC()->cart && method_exists( WC(), 'initialize_cart' ) ) {
-			WC()->initialize_cart();
+		// 3. Inicializar carrito de WooCommerce una vez la sesión y cliente existen
+		if ( property_exists( WC(), 'cart' ) && ( null === WC()->cart || ! WC()->cart instanceof WC_Cart ) ) {
+			if ( method_exists( WC(), 'initialize_cart' ) ) {
+				WC()->initialize_cart();
+			} elseif ( function_exists( 'wc_load_cart' ) ) {
+				wc_load_cart();
+			}
 		}
 
 		if ( isset( WC()->cart ) && WC()->cart instanceof WC_Cart ) {

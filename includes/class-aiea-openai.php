@@ -294,7 +294,7 @@ class AI_Ecommerce_Agent_OpenAI {
 			. "   - Si el cliente solicita añadir un producto al carrito ('añádelo', 'quiero comprarlo', 'lo llevo'):\n"
 			. "     a) Verifica que el producto sea comprable y tenga stock.\n"
 			. "     b) Si es variable y faltan atributos obligatorios, pregunta amablemente qué opción prefiere antes de ejecutar la herramienta.\n"
-			. "     c) Ejecuta anadir_al_carrito con el product_id numérico y la variación correspondiente.\n"
+			. "     c) Ejecuta anadir_al_carrito con el product_id numérico real obtenido de buscar_productos (ej. 92 para NUTRIX HMB 60 cápsulas). Si el cliente dice 'añádelo', 'quiero comprarlo' o 'agrega ese' refiriéndose al producto consultado previamente, recupera del historial el product_id numérico exacto de ese producto y envíalo en el parámetro product_id. PROHIBIDO inventar identificadores o enviar 0 si el producto ya fue identificado.\n"
 			. "     d) Confirma que el producto se añadió ÚNICAMENTE si 'exito' es true.\n"
 			. "     e) Facilita siempre enlaces funcionales al carrito y al checkout utilizando las URLs devueltas por la herramienta: [Ver Carrito](url_carrito) y [Finalizar Compra](url_checkout).\n"
 			. "     f) Si la operación falla o el producto está agotado, explícalo con claridad, no afirmes que se añadió, ofrece su enlace de ficha y presenta alternativas si las hay.\n"

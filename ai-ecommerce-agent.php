@@ -2,14 +2,14 @@
 /**
  * Plugin Name: AI Ecommerce Agent
  * Description: Agente de IA para tiendas WooCommerce.
- * Version: 1.3.0
+ * Version: 1.3.1
  * Author: AI Ecommerce Agent
  * Text Domain: ai-ecommerce-agent
  * Requires at least: 6.0
  * Requires PHP: 7.4
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
-define( 'AIEA_VERSION', '1.3.0' );
+define( 'AIEA_VERSION', '1.3.1' );
 define( 'AIEA_PATH', plugin_dir_path( __FILE__ ) );
 define( 'AIEA_URL', plugin_dir_url( __FILE__ ) );
 require_once AIEA_PATH . 'includes/class-aiea-woo.php';

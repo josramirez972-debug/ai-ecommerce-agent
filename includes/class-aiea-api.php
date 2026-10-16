@@ -119,6 +119,32 @@ class AI_Ecommerce_Agent_API {
 				],
 			]
 		);
+
+		add_filter( 'rest_authentication_errors', [ __CLASS__, 'allow_public_routes_authentication' ], 101 );
+	}
+
+	/**
+	 * Permite el acceso anónimo a los endpoints públicos del asistente cuando la petición
+	 * proviene de un navegador con cookies de sesión de WordPress pero sin nonce administrativo fresco.
+	 *
+	 * @param mixed $result Resultado previo de la autenticación REST.
+	 * @return mixed True si la ruta pública debe permitirse, o el resultado original.
+	 */
+	public static function allow_public_routes_authentication( $result ) {
+		if ( is_wp_error( $result ) && 'rest_cookie_invalid_nonce' === $result->get_error_code() ) {
+			$uri   = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+			$route = isset( $_GET['rest_route'] ) ? sanitize_text_field( wp_unslash( $_GET['rest_route'] ) ) : '';
+			if (
+				false !== strpos( $uri, '/aiea/v1/chat/public' )
+				|| false !== strpos( $uri, '/aiea/v1/cart/add' )
+				|| false !== strpos( $route, '/aiea/v1/chat/public' )
+				|| false !== strpos( $route, '/aiea/v1/cart/add' )
+			) {
+				return true;
+			}
+		}
+
+		return $result;
 	}
 
 	/**
@@ -673,6 +699,10 @@ class AI_Ecommerce_Agent_API {
 		}
 		if ( null === $raw_prod_id || '' === $raw_prod_id ) {
 			$raw_prod_id = $json_params['product_id'] ?? $json_params['id'] ?? $json_params['producto_id'] ?? null;
+		}
+
+		if ( is_array( $raw_prod_id ) ) {
+			$raw_prod_id = $raw_prod_id['product_id'] ?? $raw_prod_id['id'] ?? $raw_prod_id['producto_id'] ?? 0;
 		}
 
 		$product_id   = is_scalar( $raw_prod_id ) ? ( is_numeric( $raw_prod_id ) ? (int) $raw_prod_id : trim( (string) $raw_prod_id ) ) : 0;

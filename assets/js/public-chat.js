@@ -30,6 +30,21 @@
 	var maxLength       = parseInt(AIEAPublic.maxLength, 10) || 500;
 	var strings         = AIEAPublic.strings || {};
 
+	function toSameOriginUrl(url, fallback) {
+		if (!url || typeof url !== 'string') {
+			return fallback || '';
+		}
+		try {
+			var parsed = new URL(url, window.location.href);
+			if (window.location && window.location.origin) {
+				return window.location.origin + parsed.pathname + parsed.search;
+			}
+			return parsed.href;
+		} catch (e) {
+			return url || fallback || '';
+		}
+	}
+
 	function getStoredItem(key) {
 		try {
 			return window.sessionStorage.getItem(key) || '';
@@ -120,7 +135,7 @@
 		btn.textContent = 'Añadiendo…';
 		btn.classList.add('aiea-card-btn--loading');
 
-		var addUrl = AIEAPublic.addToCartUrl || '/wp-json/aiea/v1/cart/add';
+		var addUrl = toSameOriginUrl(AIEAPublic.addToCartUrl, '/wp-json/aiea/v1/cart/add');
 
 		function sendAddRequest(useNonce) {
 			var headers = {
@@ -171,26 +186,30 @@
 						btn.classList.remove('aiea-card-btn--success');
 					}, 2500);
 
-					if (resData.cart) {
-						notifyWooCommerceCartUpdated(resData.cart);
-					}
+					try {
+						if (resData.cart) {
+							notifyWooCommerceCartUpdated(resData.cart);
+						}
 
-					var cartUrl = resData.url_carrito || '';
-					var checkoutUrl = resData.url_checkout || '';
-					var msg = '¡Listo! Añadí 1x ' + productName + ' a tu carrito.';
-					var links = [];
-					if (cartUrl) {
-						links.push('[Ver Carrito](' + cartUrl + ')');
-					}
-					if (checkoutUrl) {
-						links.push('[Finalizar Compra](' + checkoutUrl + ')');
-					}
-					if (links.length > 0) {
-						msg += ' ' + links.join(' | ');
-					}
+						var cartUrl = resData.url_carrito || '';
+						var checkoutUrl = resData.url_checkout || '';
+						var msg = '¡Listo! Añadí 1x ' + productName + ' a tu carrito.';
+						var links = [];
+						if (cartUrl) {
+							links.push('[Ver Carrito](' + cartUrl + ')');
+						}
+						if (checkoutUrl) {
+							links.push('[Finalizar Compra](' + checkoutUrl + ')');
+						}
+						if (links.length > 0) {
+							msg += ' ' + links.join(' | ');
+						}
 
-					appendMessageElement('assistant', msg);
-					saveTurnToLocalHistory('', msg);
+						appendMessageElement('assistant', msg);
+						saveTurnToLocalHistory('', msg);
+					} catch (e) {
+						// Ignorar error de renderizado secundario
+					}
 				} else {
 					btn.disabled = false;
 					btn.textContent = originalText;
@@ -548,7 +567,9 @@
 				headers['X-WP-Nonce'] = AIEAPublic.nonce;
 			}
 
-			return fetch(AIEAPublic.restUrl, {
+			var targetRestUrl = toSameOriginUrl(AIEAPublic.restUrl, '/wp-json/aiea/v1/chat/public');
+
+			return fetch(targetRestUrl, {
 				method: 'POST',
 				credentials: 'same-origin',
 				headers: headers,
@@ -646,9 +667,10 @@
 			try {
 				applyElementorMenuCartDom(cartData);
 
-				var wcFragmentsUrl = typeof AIEAPublic.wcFragmentsUrl === 'string' && AIEAPublic.wcFragmentsUrl !== ''
+				var rawFragUrl = typeof AIEAPublic.wcFragmentsUrl === 'string' && AIEAPublic.wcFragmentsUrl !== ''
 					? AIEAPublic.wcFragmentsUrl
 					: '/?wc-ajax=get_refreshed_fragments';
+				var wcFragmentsUrl = toSameOriginUrl(rawFragUrl, '/?wc-ajax=get_refreshed_fragments');
 
 				fetch(wcFragmentsUrl, {
 					method: 'POST',
